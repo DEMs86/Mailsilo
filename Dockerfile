@@ -1,3 +1,4 @@
+
 FROM python:3.12-slim
 
 WORKDIR /app
@@ -9,6 +10,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY pyproject.toml .
 RUN pip install --no-cache-dir .
+
+# PostgreSQL driver required by SQLAlchemy's psycopg dialect
+RUN pip install --no-cache-dir "psycopg[binary]"
 
 RUN mkdir -p /app/storage/attachments
 
