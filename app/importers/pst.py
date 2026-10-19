@@ -1,18 +1,24 @@
+
 from __future__ import annotations
 
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable
+
 
 from app.importers.eml import import_eml
 
 
-def _check_readpst() -> bool:
+def _check_readpst(readpst_path: str = "readpst") -> bool:
     try:
-        subprocess.run(["readpst", "--version"], capture_output=True, timeout=10)
-        return True
-    except (FileNotFoundError, subprocess.TimeoutExpired):
+        result = subprocess.run(
+            [readpst_path, "--version"],
+            capture_output=True,
+            timeout=10,
+        )
+        return result.returncode == 0
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
         return False
 
 
@@ -22,7 +28,12 @@ def import_pst(
     readpst_path: str = "readpst",
     progress_cb: Callable[[int, int, str], None] | None = None,
 ) -> tuple[int, list[str]]:
-    return _import_with_readpst(filepath, account_id, readpst_path, progress_cb)
+    return _import_with_readpst(
+        filepath,
+        account_id,
+        readpst_path,
+        progress_cb,
+    )
 
 
 def import_ost(
@@ -31,7 +42,12 @@ def import_ost(
     readpst_path: str = "readpst",
     progress_cb: Callable[[int, int, str], None] | None = None,
 ) -> tuple[int, list[str]]:
-    return _import_with_readpst(filepath, account_id, readpst_path, progress_cb)
+    return _import_with_readpst(
+        filepath,
+        account_id,
+        readpst_path,
+        progress_cb,
+    )
 
 
 def _import_with_readpst(
@@ -41,50 +57,114 @@ def _import_with_readpst(
     progress_cb: Callable[[int, int, str], None] | None = None,
 ) -> tuple[int, list[str]]:
     src = Path(filepath)
-    if not src.exists():
+
+    if not src.is_file():
         raise FileNotFoundError(f"File not found: {src}")
 
-    if progress_cb:
-        progress_cb(0, 0, "Extrayendo correos con readpst...")
+    if not _check_readpst(readpst_path):
+        raise RuntimeError(
+            f"readpst is unavailable or not working: {readpst_path}"
+        )
 
-    with tempfile.TemporaryDirectory() as tmpdir:
+    if progress_cb:
+        progress_cb(0, 0, "Extracting mail with readpst...")
+
+    imported = 0
+    errors: list[str] = []
+
+    with tempfile.TemporaryDirectory(prefix="mailsilo-pst-") as tmpdir:
+        output_dir = Path(tmpdir)
+
         cmd = [
             readpst_path,
             "-r",
             "-e",
-            "-o", tmpdir,
+            "-o",
+            str(output_dir),
             "-D",
             str(src.resolve()),
         ]
-        result = subprocess.run(cmd,capture_output=True,text=True,errors="replace",timeout=600,)
+
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                timeout=600,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError(
+                f"readpst timed out while processing {src.name}"
+            ) from exc
+
+        # Decode diagnostics defensively: they may contain non-UTF-8 bytes.
+        stderr = result.stderr.decode("utf-8", errors="replace")
+        stdout = result.stdout.decode("utf-8", errors="replace")
+
         if result.returncode != 0:
             raise RuntimeError(
-                f"readpst failed (rc={result.returncode}): {result.stderr}"
+                f"readpst failed (rc={result.returncode}): {stderr}"
             )
 
-        eml_files = sorted(Path(tmpdir).rglob("*.eml"))
+        eml_files = sorted(
+            path
+            for path in output_dir.rglob("*")
+            if path.is_file() and path.suffix.lower() == ".eml"
+        )
         total_files = len(eml_files)
 
-        if progress_cb:
-            progress_cb(0, total_files, "Importando correos extraídos...")
+        if total_files == 0:
+            detail = stderr.strip() or stdout.strip() or "No EML files found"
+            raise RuntimeError(
+                f"readpst did not produce any EML files for "
+                f"{src.name}: {detail}"
+            )
 
-        imported = 0
-        errors = []
-        for i, eml_path in enumerate(eml_files, 1):
+        if progress_cb:
+            progress_cb(0, total_files, "Importing extracted messages...")
+
+        for index, eml_path in enumerate(eml_files, start=1):
             try:
-                imported += import_eml(eml_path, account_id=account_id)
-            except Exception as e:
-                errors.append(f"{eml_path.name}: {e}")
-            if progress_cb and (i % 5 == 0 or i == total_files):
-                progress_cb(i, total_files, f"Importando correo {i}/{total_files}")
+                # Derive the mail folder from readpst's output directory tree.
+                relative_parent = eml_path.parent.relative_to(output_dir)
+                folder_parts = [
+                    part for part in relative_parent.parts if part not in ("", ".")
+                ]
+
+                if folder_parts:
+                    folder = "/".join(folder_parts)
+                else:
+                    folder = "Imported"
+
+                imported += import_eml(
+                    eml_path,
+                    account_id=account_id,
+                    folder=folder,
+                )
+
+            except Exception as exc:
+                try:
+                    display_path = eml_path.relative_to(output_dir)
+                except ValueError:
+                    display_path = eml_path.name
+
+                errors.append(f"{display_path}: {exc}")
+
+            if progress_cb and (
+                index % 5 == 0 or index == total_files
+            ):
+                progress_cb(
+                    index,
+                    total_files,
+                    f"Importing message {index}/{total_files}",
+                )
 
     return imported, errors
 
 
 def _check_dependencies() -> list[str]:
-    missing = []
     if not _check_readpst():
-        missing.append(
-            "readpst (install: apt install pst-utils / brew install libpst)"
-        )
-    return missing
+        return [
+            "readpst (install the pst-utils package in the application image)"
+        ]
+    return []
