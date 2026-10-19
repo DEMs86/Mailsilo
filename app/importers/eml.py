@@ -259,6 +259,7 @@ def import_eml(
             .filter(
                 Email.message_id == msg_id,
                 Email.account_id == account_id,
+                Email.folder == folder,
             )
             .first()
         )
