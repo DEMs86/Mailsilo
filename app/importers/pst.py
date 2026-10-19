@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import subprocess
 import tempfile
+import shutil
 from pathlib import Path
 from typing import Callable
 
@@ -11,14 +12,21 @@ from app.importers.eml import import_eml
 
 
 def _check_readpst(readpst_path: str = "readpst") -> bool:
+    """Check that readpst exists and can be executed."""
+    executable = shutil.which(readpst_path)
+
+    if executable is None:
+        return False
+
     try:
-        result = subprocess.run(
-            [readpst_path, "--version"],
+        subprocess.run(
+            [executable, "--version"],
             capture_output=True,
             timeout=10,
+            check=False,
         )
-        return result.returncode == 0
-    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return True
+    except (subprocess.TimeoutExpired, OSError):
         return False
 
 
