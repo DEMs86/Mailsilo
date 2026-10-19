@@ -56,7 +56,7 @@ def _import_with_readpst(
             "-D",
             str(src.resolve()),
         ]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+        result = subprocess.run(cmd,capture_output=True,text=True,errors="replace",timeout=600,)
         if result.returncode != 0:
             raise RuntimeError(
                 f"readpst failed (rc={result.returncode}): {result.stderr}"
