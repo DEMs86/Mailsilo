@@ -1,182 +1,210 @@
+
 from __future__ import annotations
 
-import hashlib
 import email
-from pathlib import Path
+import hashlib
 from datetime import datetime, timezone
+from email.header import decode_header
+from email.utils import parseaddr
+from pathlib import Path
 from typing import Optional
 
 from app.models import Email, Attachment, Account
 from app.database import get_session
 
 
-def _str_header(val) -> str:
-    if val is None: return ""
-    if isinstance(val, str): return val
-    try: return str(val)
-    except: return ""
+def _str_header(value) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return _decode_payload(value)
+    return str(value)
 
-def _clean_str(s: str) -> str:
-    return s.replace("\x00", "")
 
-def _truncate_body(s: str, max_chars: int = 500000) -> str:
-    return s[:max_chars] if len(s) > max_chars else s
+def _clean_str(value: str) -> str:
+    return value.replace("\x00", "")
 
-def _decode_payload(payload: bytes | None, charset: str | None = None) -> str:
-    """Decode MIME text using its declared charset and safe fallbacks."""
-    if not payload:
+
+def _decode_payload(
+    payload: bytes | None,
+    charset: str | None = None,
+) -> str:
+    """Decode message bytes using the declared charset and safe fallbacks."""
+    if payload is None:
         return ""
 
+    # First respect the charset specified by the message.
     candidates = []
     if charset:
-        candidates.append(charset.strip())
+        candidates.append(charset.strip().strip('"').strip("'"))
 
-    candidates.extend(["utf-8", "cp1251", "koi8-r"])
+    # UTF-8 is the usual default for modern mail.
+    candidates.extend(["utf-8", "cp1251", "koi8-r", "latin-1"])
 
     tried = set()
     for encoding in candidates:
-        normalized = encoding.lower().replace("_", "-")
-        if normalized in tried:
+        encoding_key = encoding.lower()
+        if encoding_key in tried:
             continue
-        tried.add(normalized)
+        tried.add(encoding_key)
 
         try:
             return payload.decode(encoding, errors="strict")
         except (LookupError, UnicodeDecodeError):
             continue
 
-    # Last resort: preserve the message even if some bytes are invalid.
+    # latin-1 normally makes this unreachable, but keep a final fallback.
     return payload.decode("utf-8", errors="replace")
 
 
-def _decode_mime(s: str | bytes | None) -> str:
-    if s is None:
+def _decode_mime(value: str | bytes | None) -> str:
+    """Decode MIME-encoded headers and filenames."""
+    if value is None:
         return ""
-    if isinstance(s, bytes):
-        s = s.decode("ascii", errors="replace")
+    if isinstance(value, bytes):
+        value = value.decode("ascii", errors="replace")
 
-    from email.header import decode_header
-
-    parts = decode_header(s)
-    out = []
+    result: list[str] = []
+    try:
+        parts = decode_header(value)
+    except Exception:
+        return value
 
     for part, charset in parts:
         if isinstance(part, bytes):
-            out.append(_decode_payload(part, charset))
+            result.append(_decode_payload(part, charset))
         else:
-            out.append(str(part))
+            result.append(str(part))
 
-    # Adjacent encoded MIME header fragments must not gain extra spaces.
-    return "".join(out)
+    # Do not insert spaces between encoded header fragments.
+    return "".join(result)
 
 
-
-def _parse_address(hdr: str) -> tuple[str, str]:
-    hdr = hdr.strip()
-    if "<" in hdr:
-        name, addr = hdr.rsplit("<", 1)
-        addr = addr.rstrip(">").strip()
-        name = _decode_mime(name.strip().strip('"'))
-        return name, addr
-    return "", hdr
+def _parse_address(header_value: str) -> tuple[str, str]:
+    decoded = _decode_mime(header_value)
+    name, address = parseaddr(decoded)
+    return _decode_mime(name).strip(), address.strip()
 
 
 def _parse_date(date_str: str) -> Optional[datetime]:
     if not date_str:
         return None
-    parsed = email.utils.parsedate_to_datetime(date_str)
+
+    try:
+        parsed = email.utils.parsedate_to_datetime(date_str)
+    except (TypeError, ValueError, OverflowError):
+        return None
+
     if parsed and parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
+
     return parsed
 
 
-
 def _get_body(msg: email.message.Message) -> tuple[str, str]:
-    text = ""
-    html = ""
+    """Extract plain-text and HTML bodies without decoding attachments as text."""
+    text_parts: list[str] = []
+    html_parts: list[str] = []
 
     if msg.is_multipart():
         for part in msg.walk():
-            if part.get_content_maintype() == "multipart":
+            if part.is_multipart():
                 continue
 
-            # Do not treat file attachments as message body text.
-            disposition = (part.get("Content-Disposition") or "").lower()
-            if "attachment" in disposition:
+            # Files should be handled by _get_attachments(), not as body text.
+            if part.get_content_disposition() == "attachment":
                 continue
 
-            ct = part.get_content_type()
-            if ct not in ("text/plain", "text/html"):
+            content_type = part.get_content_type().lower()
+            if content_type not in ("text/plain", "text/html"):
                 continue
 
             payload = part.get_payload(decode=True)
             if payload is None:
                 continue
 
-            decoded = _decode_payload(
-                payload,
-                part.get_content_charset(),
-            )
+            charset = part.get_content_charset()
+            decoded = _decode_payload(payload, charset)
 
-            if ct == "text/plain":
-                text += decoded
+            if content_type == "text/plain":
+                text_parts.append(decoded)
             else:
-                html += decoded
-
+                html_parts.append(decoded)
     else:
+        content_type = msg.get_content_type().lower()
         payload = msg.get_payload(decode=True)
+
         if payload is not None:
-            decoded = _decode_payload(
-                payload,
-                msg.get_content_charset(),
-            )
-            if msg.get_content_type() == "text/html":
-                html = decoded
-            else:
-                text = decoded
+            decoded = _decode_payload(payload, msg.get_content_charset())
+            if content_type == "text/html":
+                html_parts.append(decoded)
+            elif content_type == "text/plain":
+                text_parts.append(decoded)
 
-    return text, html
+    return "\n".join(text_parts), "\n".join(html_parts)
 
 
+def _get_attachments(
+    msg: email.message.Message,
+) -> list[tuple[str, str, str, bytes]]:
+    attachments: list[tuple[str, str, str, bytes]] = []
 
-def _get_attachments(msg: email.message.Message) -> list[tuple[str, str, str, bytes]]:
-    attachments = []
-    if msg.is_multipart():
-        for part in msg.walk():
-            if part.get_content_maintype() == "multipart":
-                continue
-            ct = part.get_content_type()
-            disp = (part.get("Content-Disposition") or "").lower()
-            cid = (part.get("Content-ID") or "").strip("<>").strip()
-            is_inline_image = ct.startswith("image/") and (cid or "inline" in disp)
-            is_attachment = "attachment" in disp
-            if not is_inline_image and not is_attachment:
-                continue
-            filename = part.get_filename()
-            if filename:
-                filename = _decode_mime(filename)
-            elif cid:
-                filename = cid
-            else:
-                filename = "inline_image"
-            payload = part.get_payload(decode=True)
-            if payload:
-                attachments.append((filename, ct, cid, payload))
+    if not msg.is_multipart():
+        return attachments
+
+    for part in msg.walk():
+        if part.is_multipart():
+            continue
+
+        content_type = part.get_content_type()
+        disposition = (part.get("Content-Disposition") or "").lower()
+        content_id = (part.get("Content-ID") or "").strip("<>").strip()
+
+        is_inline_image = (
+            content_type.startswith("image/")
+            and (content_id or "inline" in disposition)
+        )
+        is_attachment = "attachment" in disposition
+
+        if not is_inline_image and not is_attachment:
+            continue
+
+        payload = part.get_payload(decode=True)
+        if payload is None:
+            continue
+
+        filename = part.get_filename()
+        if filename:
+            filename = _decode_mime(filename)
+        elif content_id:
+            filename = content_id
+        else:
+            filename = "inline_image"
+
+        attachments.append((filename, content_type, content_id, payload))
+
     return attachments
 
 
 def _ensure_account(session, sender_email: str) -> int:
     if not sender_email:
         return 0
-    acct = (
+
+    account = (
         session.query(Account)
         .filter(Account.email == sender_email)
         .first()
     )
-    if acct:
-        return acct.id
-    domain = sender_email.split("@")[-1] if "@" in sender_email else "unknown"
-    acct = Account(
+    if account:
+        return account.id
+
+    domain = (
+        sender_email.split("@")[-1]
+        if "@" in sender_email
+        else "unknown"
+    )
+
+    account = Account(
         name=sender_email,
         email=sender_email,
         imap_server=f"mail.{domain}",
@@ -187,70 +215,94 @@ def _ensure_account(session, sender_email: str) -> int:
         enabled=False,
         is_imported=True,
     )
-    session.add(acct)
+    session.add(account)
     session.flush()
-    return acct.id
+    return account.id
 
 
-def import_eml(filepath: str | Path, account_id: int = 0) -> int:
+def import_eml(
+    filepath: str | Path,
+    account_id: int = 0,
+    folder: str = "Imported",
+) -> int:
     p = Path(filepath)
     raw_bytes = p.read_bytes()
     msg = email.message_from_bytes(raw_bytes)
 
-    msg_id = (_str_header(msg.get("Message-ID", "")) or "").strip()
+    msg_id = _str_header(msg.get("Message-ID", "")).strip()
     if not msg_id:
         msg_id = "fallback-" + hashlib.sha256(raw_bytes).hexdigest()[:32]
-    subject = _decode_mime(_str_header(msg.get("Subject", "")))
-    sender_raw = _str_header(msg.get("From", ""))
-    sender_name, sender_email = _parse_address(sender_raw)
+
+    subject = _decode_mime(msg.get("Subject", ""))
+    sender_name, sender_email = _parse_address(
+        _str_header(msg.get("From", ""))
+    )
     date = _parse_date(_str_header(msg.get("Date", "")))
+
     text, html = _get_body(msg)
     attachments = _get_attachments(msg)
 
+    # Normalize folder paths for consistent storage.
+    folder = folder.replace("\\", "/").strip("/")
+    if not folder:
+        folder = "Imported"
+
     session = get_session()
     count = 0
+
     try:
         if account_id == 0 and sender_email:
             account_id = _ensure_account(session, sender_email)
 
         existing = (
             session.query(Email)
-            .filter(Email.message_id == msg_id, Email.account_id == account_id)
+            .filter(
+                Email.message_id == msg_id,
+                Email.account_id == account_id,
+            )
             .first()
         )
-        if not existing:
+
+        if existing is None:
             email_entry = Email(
                 account_id=account_id,
-                folder="Imported",
+                folder=folder,
                 message_id=msg_id,
                 subject=_clean_str(subject),
                 sender_name=_clean_str(sender_name),
                 sender_email=_clean_str(sender_email),
-                recipients_to=_clean_str(_str_header(msg.get("To", ""))),
-                recipients_cc=_clean_str(_str_header(msg.get("Cc", ""))),
-                recipients_bcc=_clean_str(_str_header(msg.get("Bcc", ""))),
+                recipients_to=_clean_str(
+                    _decode_mime(msg.get("To", ""))
+                ),
+                recipients_cc=_clean_str(
+                    _decode_mime(msg.get("Cc", ""))
+                ),
+                recipients_bcc=_clean_str(
+                    _decode_mime(msg.get("Bcc", ""))
+                ),
                 date=date,
                 received_date=date,
-                body_text=_truncate_body(_clean_str(text)),
-                body_html=_truncate_body(_clean_str(html)),
+                body_text=_clean_str(text)[:500000],
+                body_html=_clean_str(html)[:500000],
                 raw=raw_bytes,
-                has_attachments=len(attachments) > 0,
+                has_attachments=bool(attachments),
                 is_imported=True,
                 imported_from=p.name,
             )
             session.add(email_entry)
             session.flush()
 
-            for fname, ctype, cid, payload in attachments:
-                att = Attachment(
+            for filename, content_type, content_id, payload in attachments:
+                attachment = Attachment(
                     email_id=email_entry.id,
-                    filename=fname,
-                    content_type=ctype,
-                    content_id=cid,
+                    filename=filename,
+                    content_type=content_type,
+                    content_id=content_id,
                     size=len(payload),
                     data=payload,
                 )
-                session.add(att)
+                session.add(attachment)
+
             count = 1
 
         session.commit()
