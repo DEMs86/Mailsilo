@@ -22,25 +22,53 @@ def _clean_str(s: str) -> str:
 def _truncate_body(s: str, max_chars: int = 500000) -> str:
     return s[:max_chars] if len(s) > max_chars else s
 
+def _decode_payload(payload: bytes | None, charset: str | None = None) -> str:
+    """Decode MIME text using its declared charset and safe fallbacks."""
+    if not payload:
+        return ""
+
+    candidates = []
+    if charset:
+        candidates.append(charset.strip())
+
+    candidates.extend(["utf-8", "cp1251", "koi8-r"])
+
+    tried = set()
+    for encoding in candidates:
+        normalized = encoding.lower().replace("_", "-")
+        if normalized in tried:
+            continue
+        tried.add(normalized)
+
+        try:
+            return payload.decode(encoding, errors="strict")
+        except (LookupError, UnicodeDecodeError):
+            continue
+
+    # Last resort: preserve the message even if some bytes are invalid.
+    return payload.decode("utf-8", errors="replace")
+
+
 def _decode_mime(s: str | bytes | None) -> str:
     if s is None:
         return ""
     if isinstance(s, bytes):
-        s = s.decode("utf-8", errors="replace")
+        s = s.decode("ascii", errors="replace")
+
     from email.header import decode_header
 
     parts = decode_header(s)
     out = []
+
     for part, charset in parts:
         if isinstance(part, bytes):
-            cs = charset or "utf-8"
-            try:
-                out.append(part.decode(cs, errors="replace"))
-            except (LookupError, UnicodeDecodeError):
-                out.append(part.decode("utf-8", errors="replace"))
+            out.append(_decode_payload(part, charset))
         else:
             out.append(str(part))
-    return " ".join(out)
+
+    # Adjacent encoded MIME header fragments must not gain extra spaces.
+    return "".join(out)
+
 
 
 def _parse_address(hdr: str) -> tuple[str, str]:
@@ -62,29 +90,53 @@ def _parse_date(date_str: str) -> Optional[datetime]:
     return parsed
 
 
+
 def _get_body(msg: email.message.Message) -> tuple[str, str]:
     text = ""
     html = ""
+
     if msg.is_multipart():
         for part in msg.walk():
+            if part.get_content_maintype() == "multipart":
+                continue
+
+            # Do not treat file attachments as message body text.
+            disposition = (part.get("Content-Disposition") or "").lower()
+            if "attachment" in disposition:
+                continue
+
             ct = part.get_content_type()
+            if ct not in ("text/plain", "text/html"):
+                continue
+
+            payload = part.get_payload(decode=True)
+            if payload is None:
+                continue
+
+            decoded = _decode_payload(
+                payload,
+                part.get_content_charset(),
+            )
+
             if ct == "text/plain":
-                payload = part.get_payload(decode=True)
-                if payload:
-                    text += payload.decode("utf-8", errors="replace")
-            elif ct == "text/html":
-                payload = part.get_payload(decode=True)
-                if payload:
-                    html += payload.decode("utf-8", errors="replace")
+                text += decoded
+            else:
+                html += decoded
+
     else:
         payload = msg.get_payload(decode=True)
-        if payload:
-            decoded = payload.decode("utf-8", errors="replace")
+        if payload is not None:
+            decoded = _decode_payload(
+                payload,
+                msg.get_content_charset(),
+            )
             if msg.get_content_type() == "text/html":
                 html = decoded
             else:
                 text = decoded
+
     return text, html
+
 
 
 def _get_attachments(msg: email.message.Message) -> list[tuple[str, str, str, bytes]]:
