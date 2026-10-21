@@ -20,11 +20,15 @@ services:
       retries: 5
 
   mailsilo:
-    # Build from the local source so changes in this repo end up in the image.
-    # NOTE: with only an "image:" line, `docker compose up --build` silently
-    # pulls that image and never rebuilds the code.
-    build: .
-    # Pre-built image from Docker Hub (comment "build: ." above to use it):
+    # Image is built from the Dockerfile in this directory and tagged locally,
+    # so `docker compose up -d` runs exactly the code from this repo instead of
+    # silently pulling the upstream image from Docker Hub.
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: mailsilo:local
+    # To run the pre-built upstream image instead, remove "build:"/"image:"
+    # above and uncomment the next line:
     # image: cesarf26/mailsilo:latest
     container_name: mailsilo
     ports:
