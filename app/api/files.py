@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import case, func
+from sqlalchemy import String, case, cast, func
 from sqlalchemy.orm import Session
 
 from app.database import get_session
@@ -26,6 +26,16 @@ _EXT = case(
     ),
     else_="",
 )
+
+
+_SIZE_TEXT = cast(Attachment.size, String)
+
+
+def _mask_to_like(mask: str) -> str:
+    """Translate a user mask into a LIKE pattern: '*' matches any run of
+    characters, everything else is matched literally (%, _ and \\ are escaped)."""
+    escaped = mask.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return escaped.replace("*", "%")
 
 
 def _ext_of(filename: str) -> str:
@@ -67,7 +77,10 @@ def list_extensions(session: Session = Depends(get_session)):
 
 @router.get("")
 def list_files(
-    ext: Optional[str] = Query(None, description="Filter by extension, e.g. pdf"),
+    ext: Optional[str] = Query(None, description="Exact extension filter, e.g. pdf"),
+    name: Optional[str] = Query(None, description="File name mask, '*' matches anything"),
+    ext_mask: Optional[str] = Query(None, description="Extension mask, '*' matches anything"),
+    size: Optional[str] = Query(None, description="File size mask, matched against the byte count"),
     page: int = Query(1, ge=1),
     per_page: int = Query(100, ge=1, le=500),
     sort_by: str = Query("filename"),
@@ -83,6 +96,12 @@ def list_files(
 
     if ext is not None:
         query = query.filter(_EXT == ext.lower())
+    if name:
+        query = query.filter(Attachment.filename.ilike(_mask_to_like(name), escape="\\"))
+    if ext_mask:
+        query = query.filter(_EXT.ilike(_mask_to_like(ext_mask), escape="\\"))
+    if size:
+        query = query.filter(_SIZE_TEXT.ilike(_mask_to_like(size), escape="\\"))
 
     sort_columns = {
         "filename": func.lower(Attachment.filename),

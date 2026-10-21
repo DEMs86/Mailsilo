@@ -161,7 +161,8 @@ document.addEventListener("click", (e) => {
       renderFilesTable().catch(e => toast(`Error: ${e.message}`));
       break;
     case "file-open-email": openFileEmail(el.dataset).catch(e => toast(`Error: ${e.message}`)); break;
-    case "file-open-thread": openFileThread(parseInt(el.dataset.emailId)).catch(e => toast(`Error: ${e.message}`)); break;
+    case "file-open-thread": showThread(parseInt(el.dataset.emailId)).catch(e => toast(`Error: ${e.message}`)); break;
+    case "show-thread": showThread(parseInt(el.dataset.emailId)).catch(e => toast(`Error: ${e.message}`)); break;
 
     // Pagination
     case "change-folder-page": state.folder.page = parseInt(el.dataset.page); renderFolder(); break;

@@ -1,5 +1,7 @@
 let filesState = {
   ext: null,          // null = All, "" = files without extension
+  filters: { filename: "", ext: "", size: "" },  // per-column masks, '*' matches anything
+  filterCol: null,    // column whose filter input is currently open
   sortBy: "filename",
   sortOrder: "asc",
   page: 1,
@@ -83,19 +85,66 @@ function filesSort(key) {
   renderFilesTable().catch((e) => toast(`Error: ${e.message}`));
 }
 
+const FILES_COLUMNS = [
+  { key: "filename", label: "Name", cls: "", placeholder: "name, * = any chars" },
+  { key: "ext", label: "Extension", cls: "", placeholder: "ext, e.g. do*" },
+  { key: "size", label: "Size", cls: "num", placeholder: "bytes, e.g. 284*" },
+];
+
 function filesTableHeadHtml() {
-  const head = (key, label, cls = "") => {
-    const active = filesState.sortBy === key;
-    const arrow = active ? (filesState.sortOrder === "asc" ? "▲" : "▼") : "";
+  const cell = (col) => {
+    const sorted = filesState.sortBy === col.key;
+    const arrow = sorted ? (filesState.sortOrder === "asc" ? "▲" : "▼") : "";
     const arrowHtml = arrow ? ` <span class="files-sort-arrow">${arrow}</span>` : "";
-    return `<th class="${cls}${active ? " active" : ""}" data-action="files-sort" data-sort="${key}" title="Sort by ${label}">${label}${arrowHtml}</th>`;
+    const filter = filesState.filters[col.key] || "";
+    const filterTitle = filter
+      ? `Filter: ${filter} (click to change)`
+      : "Filter this column";
+    return `<th class="${col.cls}${sorted ? " active" : ""}">
+      <span class="files-th-label" data-action="files-sort" data-sort="${col.key}" title="Sort by ${col.label}">${col.label}${arrowHtml}</span>
+      <button type="button" class="files-filter-btn${filter ? " on" : ""}" data-action="files-filter-open" data-col="${col.key}" title="${escAttr(filterTitle)}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+      </button>
+    </th>`;
   };
+
+  const filterRow = filesState.filterCol
+    ? `<tr class="files-filter-row">${FILES_COLUMNS.map((col) => (col.key === filesState.filterCol
+        ? `<th class="${col.cls}"><input type="text" class="files-filter-input" id="filesFilterInput" data-col="${col.key}" value="${escAttr(filesState.filters[col.key] || "")}" placeholder="${escAttr(col.placeholder)}" onkeydown="filesFilterKeydown(event)"></th>`
+        : `<th class="${col.cls}"></th>`)).join("")}<th class="col-actions"></th></tr>`
+    : "";
+
   return `<thead><tr>
-    ${head("filename", "Name")}
-    ${head("ext", "Extension")}
-    ${head("size", "Size", "num")}
+    ${FILES_COLUMNS.map(cell).join("")}
     <th class="col-actions"></th>
-  </tr></thead>`;
+  </tr>${filterRow}</thead>`;
+}
+
+/* ---------- per-column filters ---------- */
+
+function filesFilterOpen(col) {
+  filesState.filterCol = filesState.filterCol === col ? null : col;
+  renderFilesTable().catch((e) => toast(`Error: ${e.message}`));
+}
+
+function filesFilterApply(col, value) {
+  filesState.filters[col] = (value || "").trim();
+  filesState.filterCol = null;
+  filesState.page = 1;
+  renderFilesTable().catch((e) => toast(`Error: ${e.message}`));
+}
+
+function filesFilterKeydown(event) {
+  const col = event.target.dataset.col;
+  if (!col) return;
+  if (event.key === "Enter") {
+    event.preventDefault();
+    filesFilterApply(col, event.target.value);
+  } else if (event.key === "Escape") {
+    event.preventDefault();
+    event.target.value = "";
+    filesFilterApply(col, "");
+  }
 }
 
 function fileRowHtml(f) {
@@ -138,6 +187,9 @@ async function renderFilesTable() {
     sort_order: filesState.sortOrder,
   });
   if (filesState.ext !== null) params.set("ext", filesState.ext);
+  if (filesState.filters.filename) params.set("name", filesState.filters.filename);
+  if (filesState.filters.ext) params.set("ext_mask", filesState.filters.ext);
+  if (filesState.filters.size) params.set("size", filesState.filters.size);
 
   const data = await api(`/api/files?${params.toString()}`);
 
@@ -148,9 +200,14 @@ async function renderFilesTable() {
 
   if (!data.items.length) {
     const msg = filesState.ext === null
-      ? "No files yet. Fetch or import an archive first."
-      : "No files with this extension.";
-    wrap.innerHTML = `<div class="empty-state">${msg}</div>`;
+      ? "No files match the current filters."
+      : "No files with this extension and the current filters.";
+    wrap.innerHTML = `<table class="files-table">
+      <colgroup><col><col class="col-ext"><col class="col-size"><col class="col-actions"></colgroup>
+      ${filesTableHeadHtml()}
+      <tbody><tr><td colspan="4"><div class="empty-state">${msg}</div></td></tr></tbody>
+    </table>`;
+    focusFilesFilterInput();
     return;
   }
 
@@ -159,6 +216,16 @@ async function renderFilesTable() {
     ${filesTableHeadHtml()}
     <tbody>${data.items.map(fileRowHtml).join("")}</tbody>
   </table>` + pagination(data.total, data.page, data.per_page, "files-page");
+
+  focusFilesFilterInput();
+}
+
+function focusFilesFilterInput() {
+  if (!filesState.filterCol) return;
+  const input = $("#filesFilterInput");
+  if (!input) return;
+  input.focus();
+  input.setSelectionRange(input.value.length, input.value.length);
 }
 
 /* ---------- row actions ---------- */
@@ -178,11 +245,4 @@ async function openFileEmail(ds) {
     await renderFolder();
   }
   await showEmail(emailId);
-}
-
-async function openFileThread(emailId) {
-  state.view = "thread";
-  state.folder = null;
-  state.selectedEmailId = null;
-  await renderThread(emailId);
 }

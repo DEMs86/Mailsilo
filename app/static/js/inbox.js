@@ -140,6 +140,13 @@ async function renderFolder() {
   $("#listPanelBody").innerHTML = html;
 }
 
+async function showThread(emailId) {
+  state.view = "thread";
+  state.folder = null;
+  state.selectedEmailId = null;
+  await renderThread(emailId);
+}
+
 async function renderThread(emailId) {
   setSplitView(true);
   const data = await api(`/api/threads?email_id=${encodeURIComponent(emailId)}`);
@@ -332,6 +339,7 @@ async function showEmail(id) {
   $("#detailActions").innerHTML = `
     <button class="primary" data-action="export-eml" data-email-id="${e.id}">📥 Export</button>
     <button data-action="forward-email" data-email-id="${e.id}">📤 Forward</button>
+    <button data-action="show-thread" data-email-id="${e.id}" title="Show all emails in this conversation">💬 Conversation</button>
     <button class="danger" data-action="delete-email" data-email-id="${e.id}">🗑 Delete</button>
     <button style="margin-left:auto" data-action="nav" data-view="${state.view === "search" ? "search" : "inbox"}">← Back</button>
   `;
