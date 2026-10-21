@@ -147,18 +147,40 @@ function renderEmailListItem(e) {
   </div>`;
 }
 
+function pad2(n) {
+  return String(n).padStart(2, "0");
+}
+
+// ДД.ММ.ГГГГ
+function formatDay(d) {
+  return `${pad2(d.getDate())}.${pad2(d.getMonth() + 1)}.${d.getFullYear()}`;
+}
+
+// ЧЧ:ММ (24 часа)
+function formatTimeHM(d) {
+  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+
+// ДД.ММ.ГГГГ, ЧЧ:ММ:СС (24 часа)
+function formatDateTime(dateStr) {
+  const d = new Date(dateStr);
+  if (Number.isNaN(d.getTime())) return "";
+  return `${formatDay(d)}, ${formatTimeHM(d)}:${pad2(d.getSeconds())}`;
+}
+
 function formatDate(dateStr) {
   const d = new Date(dateStr);
+  if (Number.isNaN(d.getTime())) return "";
   const now = new Date();
   const diff = now - d;
   const oneDay = 86400000;
   if (diff < oneDay && d.getDate() === now.getDate()) {
-    return d.toLocaleTimeString("en", { hour: "2-digit", minute: "2-digit" });
+    return formatTimeHM(d);
   }
   if (diff < 7 * oneDay) {
     return d.toLocaleDateString("en", { weekday: "short" });
   }
-  return d.toLocaleDateString("en", { day: "2-digit", month: "2-digit", year: "2-digit" });
+  return formatDay(d);
 }
 
 async function showEmail(id) {
@@ -226,7 +248,7 @@ async function showEmail(id) {
     ["To:", esc(e.recipients_to || "")],
   ];
   if (e.recipients_cc) metaFields.push(["CC:", esc(e.recipients_cc)]);
-  metaFields.push(["Date:", e.date ? new Date(e.date).toLocaleString("en") : ""]);
+  metaFields.push(["Date:", e.date ? formatDateTime(e.date) : ""]);
   if (e.folder) metaFields.push(["Folder:", esc(e.folder)]);
 
   for (const [label, value] of metaFields) {
