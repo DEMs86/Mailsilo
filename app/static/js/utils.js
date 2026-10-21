@@ -10,6 +10,11 @@ function esc(s) {
   return d.innerHTML;
 }
 
+// Same as esc(), but also safe inside a quoted HTML attribute.
+function escAttr(s) {
+  return esc(s).replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
 function toast(msg) {
   const el = document.createElement("div");
   el.className = "toast";

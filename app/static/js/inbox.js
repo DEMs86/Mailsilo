@@ -80,17 +80,36 @@ async function showFolder(accountEmail, folderName, accountId) {
   renderFolder();
 }
 
-function sortToolbarHtml() {
-  const dir = state.sortOrder === "asc" ? "↑" : "↓";
-  const opts = [
-    { value: "date", label: "Date" },
-    { value: "subject", label: "Subject" },
-    { value: "sender", label: "From" },
-  ].map(o => `<option value="${o.value}" ${state.sortBy === o.value ? "selected" : ""}>${o.label}</option>`).join("");
-  return `<div class="sort-bar">
-    <select id="sortBySelect" onchange="state.sortBy=this.value; state.folder.page=1; renderFolder()">${opts}</select>
-    <button class="btn-sm outline" id="sortDirBtn" onclick="state.sortOrder=state.sortOrder==='asc'?'desc':'asc'; state.folder.page=1; renderFolder()" style="font-size:1rem;line-height:1;padding:.3rem .6rem">${dir}</button>
-  </div>`;
+function listColumnsHtml() {
+  const cols = [
+    { key: "sender", label: "From", cls: "" },
+    { key: "subject", label: "Subject", cls: "" },
+    { key: "date", label: "Date", cls: "lc-date" },
+  ];
+  const head = cols.map(({ key, label, cls }) => {
+    const active = state.sortBy === key;
+    const arrow = active ? (state.sortOrder === "asc" ? "▲" : "▼") : "";
+    const arrowHtml = arrow ? ` <span class="lc-arrow">${arrow}</span>` : "";
+    return `<button type="button" class="lc-btn ${cls}${active ? " active" : ""}" data-action="sort-column" data-sort="${key}" title="Sort by ${label}">${label}${arrowHtml}</button>`;
+  }).join("");
+  return `<div class="list-columns"><span></span><span></span><span></span>${head}</div>`;
+}
+
+function sortByColumn(col) {
+  if (state.sortBy === col) {
+    state.sortOrder = state.sortOrder === "asc" ? "desc" : "asc";
+  } else {
+    state.sortBy = col;
+    state.sortOrder = col === "date" ? "desc" : "asc";
+  }
+  if (state.view === "search") {
+    doSearch(1);
+    return;
+  }
+  if (state.folder) {
+    state.folder.page = 1;
+    renderFolder();
+  }
 }
 
 async function renderFolder() {
@@ -113,7 +132,7 @@ async function renderFolder() {
     <button class="btn-sm danger" data-action="delete-selected">🗑 Delete selected</button>
     <button class="btn-sm" data-action="export-selected">📦 Export selected</button>
   </div>`;
-  html += sortToolbarHtml();
+  html += listColumnsHtml();
   for (const e of data.items) {
     html += renderEmailListItem(e);
   }
@@ -124,26 +143,22 @@ async function renderFolder() {
 function renderEmailListItem(e) {
   const isUnread = !e.is_read;
   const isSelected = state.selectedEmailId === e.id;
-  const initials = (e.sender_name || e.sender_email || "?")[0].toUpperCase();
+  const sender = e.sender_name || e.sender_email || "";
+  const initials = (sender || "?")[0].toUpperCase();
   const colors = ["#0d9488", "#6366f1", "#8b5cf6", "#ec4899", "#f59e0b", "#10b981", "#3b82f6", "#ef4444"];
-  const colorIdx = (e.sender_email || e.id).length % colors.length;
+  const colorIdx = String(e.sender_email || e.id || "").length % colors.length;
   const date = e.date ? formatDate(e.date) : "";
   const hasAtt = e.has_attachments;
-  const preview = (e.body_text || "").replace(/\n/g, " ").substring(0, 80);
+  const subject = e.subject || "(no subject)";
   const checked = selectedIds.has(e.id) ? "checked" : "";
 
-  return `<div class="email-list-item ${isUnread ? "unread" : "read"} ${isSelected ? "selected" : ""}" data-action="show-email" data-email-id="${e.id}">
+  return `<div class="email-list-item email-row ${isUnread ? "unread" : "read"} ${isSelected ? "selected" : ""}" data-action="show-email" data-email-id="${e.id}">
     <input type="checkbox" class="email-checkbox" data-email-id="${e.id}" ${checked} onclick="event.stopPropagation()" onchange="toggleSelectEmail(${e.id}, this.checked)">
     <div class="email-unread-dot"></div>
-    <div class="email-avatar${hasAtt ? " has-attachment" : ""}" style="background:${colors[colorIdx]}">${initials}</div>
-    <div class="email-content">
-      <div class="email-row1">
-        <span class="email-sender">${esc(e.sender_name || e.sender_email || "(unknown)")}</span>
-        <span class="email-date">${date}</span>
-      </div>
-      <div class="email-subject">${esc(e.subject || "(no subject)")}</div>
-      <div class="email-preview">${esc(preview)}</div>
-    </div>
+    <div class="email-avatar${hasAtt ? " has-attachment" : ""}" style="background:${colors[colorIdx]}" title="${escAttr(sender)}">${initials}</div>
+    <span class="email-sender" title="${escAttr(sender)}">${esc(sender || "(unknown)")}</span>
+    <span class="email-subject" title="${escAttr(subject)}">${esc(subject)}</span>
+    <span class="email-date">${date}</span>
   </div>`;
 }
 
@@ -405,19 +420,6 @@ async function renderSearch() {
   if (state.query) doSearch();
 }
 
-function sortSearchToolbarHtml() {
-  const dir = state.sortOrder === "asc" ? "↑" : "↓";
-  const opts = [
-    { value: "date", label: "Date" },
-    { value: "subject", label: "Subject" },
-    { value: "sender", label: "From" },
-  ].map(o => `<option value="${o.value}" ${state.sortBy === o.value ? "selected" : ""}>${o.label}</option>`).join("");
-  return `<div class="sort-bar" style="margin-bottom:.5rem">
-    <select id="sortBySearch" onchange="state.sortBy=this.value; doSearch(1)">${opts}</select>
-    <button class="btn-sm outline" onclick="state.sortOrder=state.sortOrder==='asc'?'desc':'asc'; doSearch(1)" style="font-size:1rem;line-height:1;padding:.3rem .6rem">${dir}</button>
-  </div>`;
-}
-
 async function doSearch(page = 1) {
   state.query = ($("#searchInput") || $("#searchInputTop")).value.trim();
   state.page = page;
@@ -432,7 +434,7 @@ async function doSearch(page = 1) {
     <span style="color:var(--text-secondary);font-size:.82rem">${data.total} result(s)</span>
     <button class="btn-small" data-action="export-mbox-search">📦 Export MBOX</button>
   </div>`;
-  html += sortSearchToolbarHtml();
+  html += listColumnsHtml();
   for (const e of data.items) {
     html += renderEmailListItem(e);
   }

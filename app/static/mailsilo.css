@@ -203,11 +203,37 @@ input, textarea, select {
 .split-view.full-width .detail-panel {
   display: none;
 }
+.split-view.full-width .split-resizer {
+  display: none;
+}
+
+/* Draggable divider between the list and the reading pane */
+.split-resizer {
+  flex: 0 0 5px;
+  width: 5px;
+  cursor: col-resize;
+  background: var(--border);
+  position: relative;
+  z-index: 6;
+  touch-action: none;
+  transition: background .15s;
+}
+/* Wider hit area without stealing layout width */
+.split-resizer::after {
+  content: "";
+  position: absolute;
+  top: 0; bottom: 0;
+  left: -3px; right: -3px;
+}
+.split-resizer:hover,
+.split-resizer.dragging { background: var(--accent); }
+body.resizing { cursor: col-resize; user-select: none; }
 
 /* List panel */
 .list-panel {
-  width: 420px; min-width: 340px;
-  max-width: 50%;
+  width: var(--list-width, 420px);
+  min-width: 260px;
+  max-width: calc(100% - 320px);
   display: flex; flex-direction: column;
   border-right: 1px solid var(--border);
   background: var(--surface);
@@ -317,6 +343,65 @@ input, textarea, select {
 .email-list-item.read .email-unread-dot {
   background: transparent;
 }
+
+/* Table-like rows: subject sits in its own column next to sender */
+.email-row {
+  display: grid;
+  grid-template-columns: 15px 6px 36px minmax(0, 0.85fr) minmax(0, 1.5fr) 80px;
+  column-gap: .75rem;
+  align-items: center;
+  padding: .55rem 1rem;
+}
+.email-row .email-checkbox,
+.email-row .email-unread-dot,
+.email-row .email-avatar { margin-top: 0; }
+.email-row .email-date {
+  margin-left: 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.email-row .email-sender,
+.email-row .email-subject { min-width: 0; }
+
+/* Sortable column header for the email list */
+.list-columns {
+  display: grid;
+  grid-template-columns: 15px 6px 36px minmax(0, 0.85fr) minmax(0, 1.5fr) 80px;
+  column-gap: .75rem;
+  align-items: center;
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  margin: 0 -1.25rem .5rem;
+  padding: .4rem 2.25rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  font-size: .7rem;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--text-tertiary);
+}
+.list-columns .lc-btn {
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: .2rem;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.list-columns .lc-btn:hover { color: var(--text-secondary); }
+.list-columns .lc-btn.active { color: var(--accent); font-weight: 600; }
+.list-columns .lc-btn.lc-date { justify-content: flex-end; }
+.list-columns .lc-arrow { font-size: .6rem; }
 
 .selection-toolbar {
   display: flex; align-items: center; gap: .75rem;
@@ -1430,6 +1515,7 @@ body.light .confirm-btn { background: var(--surface); }
   .sidebar .logo span, .nav-item span, .nav-section-label, #stats, .sidebar-footer button { display: none; }
   .nav-item { justify-content: center; padding: .6rem; }
   .list-panel { min-width: 0; width: 100%; max-width: 100%; }
+  .split-resizer { display: none; }
   .detail-panel { display: none; }
   .detail-panel.show-mobile { display: flex; position: fixed; inset: 0; z-index: 500; }
   .topbar { padding: 0 1rem; }

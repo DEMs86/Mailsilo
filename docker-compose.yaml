@@ -20,10 +20,12 @@ services:
       retries: 5
 
   mailsilo:
-    # Use pre-built image from Docker Hub (recommended for most users)
-    image: cesarf26/mailsilo:latest
-    # Or build from source (uncomment below and comment the line above):
-    # build: .
+    # Build from the local source so changes in this repo end up in the image.
+    # NOTE: with only an "image:" line, `docker compose up --build` silently
+    # pulls that image and never rebuilds the code.
+    build: .
+    # Pre-built image from Docker Hub (comment "build: ." above to use it):
+    # image: cesarf26/mailsilo:latest
     container_name: mailsilo
     ports:
       - "8765:8765"

@@ -28,10 +28,93 @@ async function renderView() {
 
 async function initApp() {
   initTheme();
+  initSplitResizer();
   loadStats();
   loadSidebarAccounts();
   if (typeof checkActiveImports === "function") checkActiveImports();
   navigate("inbox");
+}
+
+/* ---------- Resizable list / reader split ---------- */
+const LIST_WIDTH_KEY = "mailsilo_list_width";
+const LIST_WIDTH_DEFAULT = 420;
+const LIST_WIDTH_MIN = 260;
+const LIST_WIDTH_READER_MIN = 320;
+
+function setListWidth(px, persist = true) {
+  const sv = $("#splitView");
+  if (!sv) return;
+  const total = sv.clientWidth;
+  const max = total > 0 ? Math.max(LIST_WIDTH_MIN, total - LIST_WIDTH_READER_MIN) : px;
+  const width = Math.round(Math.min(Math.max(px, LIST_WIDTH_MIN), max));
+  sv.style.setProperty("--list-width", `${width}px`);
+  if (persist) {
+    try { localStorage.setItem(LIST_WIDTH_KEY, String(width)); } catch (e) {}
+  }
+}
+
+function savedListWidth() {
+  try {
+    const v = parseInt(localStorage.getItem(LIST_WIDTH_KEY) || "", 10);
+    return Number.isFinite(v) ? v : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function initSplitResizer() {
+  const resizer = $("#splitResizer");
+  const sv = $("#splitView");
+  if (!resizer || !sv) return;
+
+  const saved = savedListWidth();
+  if (saved !== null && sv.clientWidth > 0) setListWidth(saved, false);
+  // While the login screen is up the split view has no width yet; re-apply
+  // the saved size as soon as it becomes visible.
+  if (saved !== null && typeof ResizeObserver === "function") {
+    let applied = false;
+    const observer = new ResizeObserver(() => {
+      if (applied || sv.clientWidth === 0) return;
+      applied = true;
+      setListWidth(saved, false);
+      observer.disconnect();
+    });
+    observer.observe(sv);
+  }
+
+  let dragging = false;
+
+  const onMove = (e) => {
+    if (!dragging) return;
+    const left = sv.getBoundingClientRect().left;
+    setListWidth(e.clientX - left);
+    e.preventDefault();
+  };
+  const stop = () => {
+    if (!dragging) return;
+    dragging = false;
+    resizer.classList.remove("dragging");
+    document.body.classList.remove("resizing");
+  };
+
+  resizer.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    dragging = true;
+    resizer.classList.add("dragging");
+    document.body.classList.add("resizing");
+    if (resizer.setPointerCapture) resizer.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  });
+  resizer.addEventListener("pointermove", onMove);
+  resizer.addEventListener("pointerup", stop);
+  resizer.addEventListener("pointercancel", stop);
+  resizer.addEventListener("lostpointercapture", stop);
+  resizer.addEventListener("dblclick", () => setListWidth(LIST_WIDTH_DEFAULT));
+
+  window.addEventListener("resize", () => {
+    const w = savedListWidth();
+    if (w !== null) setListWidth(w);
+  });
 }
 
 async function loadSidebarAccounts() {
@@ -66,6 +149,7 @@ document.addEventListener("click", (e) => {
       showFolder(el.dataset.accountEmail, el.dataset.folderName, parseInt(el.dataset.accountId));
       break;
     case "toggle-group": toggleFolderGroup(el.dataset.groupId); break;
+    case "sort-column": sortByColumn(el.dataset.sort); break;
 
     // Pagination
     case "change-folder-page": state.folder.page = parseInt(el.dataset.page); renderFolder(); break;
