@@ -33,22 +33,7 @@ function renderLoginForm(msg) {
   const authErr = msg ? `<div class="auth-error" id="loginError" style="display:block">${esc(msg)}</div>` : `<div class="auth-error" id="loginError" style="display:none"></div>`;
   $("#authContainer").innerHTML = `
 <div class="auth-page hero">
-  <div class="hero-content">
-    <h1 class="hero-brand">MAILSILO</h1>
-    <span class="hero-badge">Self-Hosted • Private • Secure</span>
-    <h2 class="hero-title">Own your inbox.<br><span>Archive everything.</span></h2>
-    <p class="hero-description">
-      MailSilo is a self-hosted email archive that lets you back up,
-      organize and instantly search every message from your own server.
-      Reduce cloud storage costs, keep complete control of your data,
-      and access your emails whenever you need them.
-    </p>
-    <div class="hero-features">
-      <span>✓ Unlimited archives</span>
-      <span>✓ Instant search</span>
-      <span>✓ 100% private</span>
-      <span>✓ Self-hosted</span>
-    </div>
+  <div class="hero-content auth-content-narrow">
     <div class="auth-card">
       <img src="/static/logo-dark.png" alt="MailSilo" style="height:50px;display:block;margin:0 auto 1.25rem">
       ${authErr}
@@ -73,22 +58,7 @@ function renderLoginForm(msg) {
 function showSetup() {
   $("#authContainer").innerHTML = `
 <div class="auth-page hero">
-  <div class="hero-content">
-    <h1 class="hero-brand">MAILSILO</h1>
-    <span class="hero-badge">Self-Hosted • Private • Secure</span>
-    <h2 class="hero-title">Own your inbox.<br><span>Archive everything.</span></h2>
-    <p class="hero-description">
-      MailSilo is a self-hosted email archive that lets you back up,
-      organize and instantly search every message from your own server.
-      Reduce cloud storage costs, keep complete control of your data,
-      and access your emails whenever you need them.
-    </p>
-    <div class="hero-features">
-      <span>✓ Unlimited archives</span>
-      <span>✓ Instant search</span>
-      <span>✓ 100% private</span>
-      <span>✓ Self-hosted</span>
-    </div>
+  <div class="hero-content auth-content-narrow">
     <div class="auth-card">
       <img src="/static/logo-dark.png" alt="MailSilo" style="height:50px;display:block;margin:0 auto 1.25rem">
       <div class="auth-error" id="setupError"></div>

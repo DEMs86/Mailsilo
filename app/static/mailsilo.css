@@ -1142,6 +1142,8 @@ button.primary:disabled, .primary:disabled {
   max-width: 720px;
   text-align: center;
 }
+/* Login / setup: only the form card, no marketing copy */
+.hero-content.auth-content-narrow { max-width: 420px; }
 .hero-logo {
   height: 90px;
   margin-bottom: 20px;
@@ -1508,6 +1510,108 @@ body.light .confirm-btn { background: var(--surface); }
 @media (max-width: 500px) {
   .provider-grid { grid-template-columns: 1fr; }
 }
+
+/* =============================== FILES =============================== */
+.files-panel {
+  display: flex; flex-direction: column;
+  height: 100%; width: 100%;
+  overflow: hidden;
+  background: var(--bg);
+}
+.files-panel-header {
+  padding: .75rem 1rem;
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: .8rem; color: var(--text-secondary);
+  flex-shrink: 0;
+}
+.files-table-scroll { flex: 1; overflow: auto; }
+
+.files-filter { display: flex; flex-direction: column; gap: 2px; }
+.files-filter-item {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: .5rem;
+  width: 100%;
+  padding: .5rem .75rem;
+  background: none; border: 0; border-radius: 6px;
+  color: var(--text-secondary);
+  font: inherit; font-size: .82rem;
+  text-align: left; cursor: pointer;
+}
+.files-filter-item:hover { background: var(--hover); color: var(--text); }
+.files-filter-item.active {
+  background: var(--active); color: var(--accent); font-weight: 600;
+}
+.files-filter-count {
+  font-size: .72rem; color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.files-table {
+  width: 100%; border-collapse: collapse;
+  table-layout: fixed;
+  font-size: .82rem;
+}
+.files-table col.col-ext { width: 110px; }
+.files-table col.col-size { width: 100px; }
+.files-table col.col-actions { width: 92px; }
+.files-table th {
+  position: sticky; top: 0; z-index: 2;
+  background: var(--surface);
+  padding: .5rem 1rem;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  font-size: .7rem; font-weight: 600;
+  text-transform: uppercase; letter-spacing: .04em;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+}
+.files-table th:hover { color: var(--text-secondary); }
+.files-table th.active { color: var(--accent); }
+.files-table th.num, .files-table td.num { text-align: right; }
+.files-table td {
+  padding: .45rem 1rem;
+  border-bottom: 1px solid var(--border-light);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  color: var(--text-secondary);
+}
+.files-table tbody tr:hover { background: var(--hover); }
+.files-table .file-name a { color: var(--accent); text-decoration: none; }
+.files-table .file-name a:hover { text-decoration: underline; }
+.files-table .file-ext { color: var(--text-tertiary); }
+.files-table .file-size { font-variant-numeric: tabular-nums; color: var(--text-tertiary); }
+.files-table .file-actions { text-align: right; }
+.files-sort-arrow { font-size: .6rem; }
+
+.icon-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px;
+  padding: 0; margin-left: 2px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--text-tertiary);
+  cursor: pointer;
+}
+.icon-btn:hover {
+  color: var(--accent);
+  border-color: var(--border);
+  background: var(--surface-2);
+}
+.icon-btn svg { width: 15px; height: 15px; }
+
+/* Conversation view */
+.thread-head {
+  padding: .75rem 1rem .5rem;
+  border-bottom: 1px solid var(--border-light);
+}
+.thread-subject {
+  font-size: .9rem; font-weight: 600; color: var(--text);
+  margin-bottom: 2px;
+}
+.thread-count { font-size: .72rem; color: var(--text-tertiary); }
 
 /* =============================== MOBILE =============================== */
 @media (max-width: 900px) {

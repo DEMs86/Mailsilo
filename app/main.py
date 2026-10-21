@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse
 
 from .config import load_config
 from .database import init_db, get_session
-from .api import emails, accounts, imports, folders, auth, oauth_microsoft, settings
+from .api import emails, accounts, imports, folders, auth, oauth_microsoft, settings, files, threads
 from .api.deps import get_current_user
 from .models import Account
 
@@ -118,6 +118,8 @@ app.include_router(imports.router)
 app.include_router(folders.router)
 app.include_router(oauth_microsoft.router)
 app.include_router(settings.router)
+app.include_router(files.router)
+app.include_router(threads.router)
 
 if _STATIC.exists():
     app.mount("/static", StaticFiles(directory=str(_STATIC)), name="static")

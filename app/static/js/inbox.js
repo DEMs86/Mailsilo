@@ -140,6 +140,28 @@ async function renderFolder() {
   $("#listPanelBody").innerHTML = html;
 }
 
+async function renderThread(emailId) {
+  setSplitView(true);
+  const data = await api(`/api/threads?email_id=${encodeURIComponent(emailId)}`);
+  setListTitle("Conversation", `${data.total} email(s)`);
+  showDetailEmpty();
+  selectedIds.clear();
+  updateSelectionToolbar();
+
+  let html = `<div class="thread-head">
+    <div class="thread-subject">${esc(data.subject || "(no subject)")}</div>
+    <div class="thread-count">${data.total} email(s) in this conversation</div>
+  </div>`;
+  for (const e of data.items) {
+    html += renderEmailListItem(e);
+  }
+  $("#listPanelBody").innerHTML = html;
+
+  if (data.items.some((e) => e.id === emailId)) {
+    await showEmail(emailId);
+  }
+}
+
 function renderEmailListItem(e) {
   const isUnread = !e.is_read;
   const isSelected = state.selectedEmailId === e.id;
@@ -201,6 +223,7 @@ function formatDate(dateStr) {
 async function showEmail(id) {
   state.selectedEmailId = id;
   setSplitView(true);
+  hideFilesPanel();
   const dp = $("#detailPanel");
   if (dp) dp.classList.add("show-mobile");
 
@@ -359,6 +382,7 @@ async function forwardEmail(id) {
 }
 
 function showDetailEmpty() {
+  hideFilesPanel();
   $("#detailContent").style.display = "none";
   $("#detailEmpty").style.display = "flex";
   const dp = $("#detailPanel");

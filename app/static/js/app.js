@@ -11,9 +11,11 @@ function navigate(view, page = 1) {
 
 async function renderView() {
   showLoading(true);
+  showDetailEmpty();
   try {
     switch (state.view) {
       case "inbox": await renderInbox(); break;
+      case "files": await renderFiles(); break;
       case "folder": if (state.folder) { await renderFolder(); } else { await renderInbox(); } break;
       case "search": await renderSearch(); break;
       case "accounts": setSplitView(false); setListTitle("Accounts", ""); showDetailEmpty(); await renderAccounts(); break;
@@ -150,6 +152,16 @@ document.addEventListener("click", (e) => {
       break;
     case "toggle-group": toggleFolderGroup(el.dataset.groupId); break;
     case "sort-column": sortByColumn(el.dataset.sort); break;
+
+    // Files
+    case "files-ext": filesSelectExt(el.dataset.ext); break;
+    case "files-sort": filesSort(el.dataset.sort); break;
+    case "files-page":
+      filesState.page = parseInt(el.dataset.page);
+      renderFilesTable().catch(e => toast(`Error: ${e.message}`));
+      break;
+    case "file-open-email": openFileEmail(el.dataset).catch(e => toast(`Error: ${e.message}`)); break;
+    case "file-open-thread": openFileThread(parseInt(el.dataset.emailId)).catch(e => toast(`Error: ${e.message}`)); break;
 
     // Pagination
     case "change-folder-page": state.folder.page = parseInt(el.dataset.page); renderFolder(); break;
