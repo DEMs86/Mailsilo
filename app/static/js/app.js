@@ -156,6 +156,7 @@ document.addEventListener("click", (e) => {
     // Files
     case "files-ext": filesSelectExt(el.dataset.ext); break;
     case "files-sort": filesSort(el.dataset.sort); break;
+    case "files-filter-open": filesFilterOpen(el.dataset.col); break;
     case "files-page":
       filesState.page = parseInt(el.dataset.page);
       renderFilesTable().catch(e => toast(`Error: ${e.message}`));
