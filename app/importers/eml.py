@@ -220,10 +220,59 @@ def _ensure_account(session, sender_email: str) -> int:
     return account.id
 
 
+def ensure_import_account(
+    session,
+    email_address: str,
+    name: str | None = None,
+) -> int:
+    """Get or create one archive-only account for a whole mailbox.
+
+    Unlike ``_ensure_account`` (which creates an account per sender when no
+    account is selected) this keeps a migration/dump in a single account. The
+    account is flagged ``is_imported`` and disabled, so the background IMAP
+    fetcher never polls a server that is not configured.
+    """
+    email_address = (email_address or "").strip()
+    if not email_address:
+        return 0
+
+    account = (
+        session.query(Account)
+        .filter(Account.email == email_address)
+        .first()
+    )
+    if account:
+        return account.id
+
+    domain = (
+        email_address.split("@")[-1]
+        if "@" in email_address
+        else "unknown"
+    )
+
+    account = Account(
+        name=name or email_address,
+        email=email_address,
+        imap_server=f"mail.{domain}",
+        imap_port=993,
+        imap_use_ssl=True,
+        username=email_address,
+        folders="INBOX",
+        enabled=False,
+        is_imported=True,
+    )
+    session.add(account)
+    session.flush()
+    return account.id
+
+
 def import_eml(
     filepath: str | Path,
     account_id: int = 0,
     folder: str = "Imported",
+    is_read: bool = False,
+    fallback_date: datetime | None = None,
+    account_email: str = "",
 ) -> int:
     p = Path(filepath)
     raw_bytes = p.read_bytes()
@@ -238,6 +287,10 @@ def import_eml(
         _str_header(msg.get("From", ""))
     )
     date = _parse_date(_str_header(msg.get("Date", "")))
+    if date is None and fallback_date is not None:
+        # The Yandex dump keeps the server-side timestamp in manifest.jsonl;
+        # keep it when the message has no usable Date header.
+        date = fallback_date
 
     text, html = _get_body(msg)
     attachments = _get_attachments(msg)
@@ -251,6 +304,8 @@ def import_eml(
     count = 0
 
     try:
+        if account_id == 0 and account_email:
+            account_id = ensure_import_account(session, account_email)
         if account_id == 0 and sender_email:
             account_id = _ensure_account(session, sender_email)
 
@@ -287,6 +342,7 @@ def import_eml(
                 body_html=_clean_str(html)[:500000],
                 raw=raw_bytes,
                 has_attachments=bool(attachments),
+                is_read=is_read,
                 is_imported=True,
                 imported_from=p.name,
             )

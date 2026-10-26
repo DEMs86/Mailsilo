@@ -42,15 +42,84 @@ async def _save_upload(file: UploadFile, suffix: str = "") -> Path:
 async def upload_eml(
     file: UploadFile = File(...),
     account_id: int = Form(0),
+    folder: str = Form("Imported"),
+    is_read: bool = Form(False),
+    account_email: str = Form(""),
 ):
     tmp = await _save_upload(file, f"_{file.filename or 'import.eml'}")
     try:
-        n = import_eml(tmp, account_id=account_id)
+        n = import_eml(
+            tmp,
+            account_id=account_id,
+            folder=folder,
+            is_read=is_read,
+            account_email=account_email,
+        )
         return {"imported": n, "filename": file.filename}
     except Exception as e:
         raise HTTPException(500, str(e))
     finally:
         tmp.unlink(missing_ok=True)
+
+
+@router.post("/yandex-dump")
+async def upload_yandex_dump(
+    file: UploadFile = File(...),
+    account_id: int = Form(0),
+    account_email: str = Form(""),
+):
+    """Import a zipped yandex-mail-export dump, keeping folders and flags."""
+    from app.importers.yandex_dump import import_yandex_dump
+
+    _cleanup_old_tasks()
+    task_id = uuid.uuid4().hex
+    _import_tasks[task_id] = {
+        "status": "uploading",
+        "message": "Guardando archivo en servidor...",
+        "filename": file.filename or "dump.zip",
+        "_ts": time.time(),
+    }
+    tmp = await _save_upload(file, f"_{file.filename or 'dump.zip'}")
+
+    def progress(current: int, total: int):
+        _import_tasks[task_id] = {
+            "status": "processing",
+            "current": current,
+            "total": total,
+            "message": "",
+            "filename": file.filename or "dump.zip",
+        }
+
+    progress(0, 0)
+
+    def run():
+        try:
+            result = import_yandex_dump(
+                tmp,
+                account_id=account_id,
+                account_email=account_email,
+                progress_cb=progress,
+            )
+            _import_tasks[task_id] = {
+                "status": "done",
+                "imported": result["imported"],
+                "skipped": result["skipped"],
+                "failed": result["failed"],
+                "total": result["total"],
+                "errors": result["errors"],
+                "folders": result["folders"],
+                "account_id": result["account_id"],
+                "filename": file.filename or "dump.zip",
+                "_ts": time.time(),
+            }
+        except Exception as e:
+            _import_tasks[task_id] = {"status": "error", "error": str(e), "_ts": time.time()}
+        finally:
+            tmp.unlink(missing_ok=True)
+
+    threading.Thread(target=run, daemon=True).start()
+    return {"task_id": task_id}
+
 
 
 @router.post("/pst")
