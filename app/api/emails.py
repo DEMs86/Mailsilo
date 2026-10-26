@@ -4,6 +4,7 @@ import logging
 import re
 from datetime import datetime, timezone
 from typing import Optional
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -22,6 +23,36 @@ router = APIRouter(
     tags=["emails"],
     dependencies=[Depends(get_current_user)],
 )
+
+
+def _content_disposition(filename: str, default: str = "attachment") -> str:
+    """Attachment header that survives non-ASCII file names.
+
+    Starlette encodes response headers as latin-1, so a raw Cyrillic name in
+    ``Content-Disposition`` raises UnicodeEncodeError and the download fails
+    with HTTP 500. RFC 5987's ``filename*`` carries the real UTF-8 name while
+    ``filename`` keeps a plain ASCII fallback for old clients.
+    """
+    name = (filename or "").strip() or default
+    name = (
+        name.replace("\r", " ")
+        .replace("\n", " ")
+        .replace("\\", "_")
+        .replace('"', "_")
+        .strip()
+    ) or default
+    ascii_name = name.encode("ascii", "ignore").decode().strip()
+    ext = ""
+    if "." in name:
+        ext = "." + name.rsplit(".", 1)[1].encode("ascii", "ignore").decode()
+    # "печать.docx" leaves only ".docx" once the Cyrillic is dropped — fall
+    # back to a readable generic name that keeps the extension.
+    if not ascii_name.strip(" ._-") or ascii_name.startswith("."):
+        ascii_name = f"{default}{ext}" if ext else default
+    return (
+        f'attachment; filename="{ascii_name}"; '
+        f"filename*=UTF-8''{quote(name, safe='')}"
+    )
 
 
 @router.get("")
@@ -245,7 +276,7 @@ def get_attachment(
     return Response(
         content=content,
         media_type=att.content_type or "application/octet-stream",
-        headers={"Content-Disposition": f'attachment; filename="{att.filename}"'},
+        headers={"Content-Disposition": _content_disposition(att.filename)},
     )
 
 
@@ -263,7 +294,7 @@ def export_eml(email_id: int, session: Session = Depends(get_session)):
     return Response(
         content=raw,
         media_type="message/rfc822",
-        headers={"Content-Disposition": f'attachment; filename="{safe_name}"'},
+        headers={"Content-Disposition": _content_disposition(safe_name, f"{email_id}.eml")},
     )
 
 

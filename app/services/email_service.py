@@ -164,7 +164,13 @@ class EmailService:
         part = MIMEBase("message", "rfc822")
         part.set_payload(eml_bytes)
         encoders.encode_base64(part)
-        part.add_header("Content-Disposition", "attachment", filename=f"{subject}.eml")
+        # MIME headers must be ASCII: a Cyrillic subject here raises
+        # UnicodeEncodeError while the message is flattened for SMTP.
+        safe_filename = "".join(
+            c if (c.isascii() and (c.isalnum() or c in " ._-")) else "_"
+            for c in f"{subject}.eml"
+        ) or "email.eml"
+        part.add_header("Content-Disposition", "attachment", filename=safe_filename)
         msg.attach(part)
 
         smtp_username = smtp_cfg.get("username", "") or from_email
