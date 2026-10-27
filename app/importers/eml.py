@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import email
 import hashlib
+import re
 from datetime import datetime, timezone
 from email.header import decode_header
 from email.utils import parseaddr
@@ -144,6 +145,54 @@ def _get_body(msg: email.message.Message) -> tuple[str, str]:
     return "\n".join(text_parts), "\n".join(html_parts)
 
 
+def _has_broken_chars(value: str) -> bool:
+    """True for names the MIME parser could not decode (raw 8-bit bytes)."""
+    return any(
+        0xD800 <= ord(ch) <= 0xDFFF or ch == "\ufffd" for ch in value
+    )
+
+
+def _raw_filename_from_header(part) -> str:
+    """Recover a filename stored as raw non-ASCII bytes.
+
+    Some clients write ``Content-Disposition: attachment; filename="Отчёт.docx"``
+    in cp1251 without RFC 2047 encoding. Under the compat32 policy those bytes
+    survive as lone surrogates, so ``get_filename()`` returns mojibake. Re-encode
+    to bytes and try the usual charsets.
+    """
+    for key, value in getattr(part, "_headers", []):
+        if key.lower() != "content-disposition":
+            continue
+        try:
+            raw = value.encode("ascii", "surrogateescape")
+        except UnicodeEncodeError:
+            return ""
+        match = re.search(rb'filename\*?\s*=\s*"([^"]*)"', raw, re.I)
+        if not match:
+            match = re.search(rb'filename\*?\s*=\s*([^;]+)', raw, re.I)
+        if not match:
+            return ""
+        data = match.group(1).strip().strip(b'"')
+        for charset in ("utf-8", "cp1251", "koi8-r"):
+            try:
+                return data.decode(charset)
+            except UnicodeDecodeError:
+                continue
+        return ""
+    return ""
+
+
+def attachment_filename(part) -> str:
+    """Filename for an attachment part, decoded from RFC 2047 or raw bytes."""
+    filename = part.get_filename()
+    if not filename:
+        return ""
+    decoded = _decode_mime(filename)
+    if _has_broken_chars(decoded):
+        return _raw_filename_from_header(part) or decoded
+    return decoded
+
+
 def _get_attachments(
     msg: email.message.Message,
 ) -> list[tuple[str, str, str, bytes]]:
@@ -157,14 +206,18 @@ def _get_attachments(
             continue
 
         content_type = part.get_content_type()
-        disposition = (part.get("Content-Disposition") or "").lower()
-        content_id = (part.get("Content-ID") or "").strip("<>").strip()
+        # With the compat32 policy a header that needs RFC 2047 decoding comes
+        # back as an email.header.Header object, not a str. get_content_disposition()
+        # normalises it to 'attachment' / 'inline' / None, and also copes with
+        # "Content-Disposition: FORM-DATA; filename=..." used by older clients.
+        disposition = part.get_content_disposition() or ""
+        content_id = _str_header(part.get("Content-ID")).strip("<>").strip()
 
         is_inline_image = (
             content_type.startswith("image/")
-            and (content_id or "inline" in disposition)
+            and (content_id or disposition == "inline")
         )
-        is_attachment = "attachment" in disposition
+        is_attachment = disposition == "attachment"
 
         if not is_inline_image and not is_attachment:
             continue
@@ -173,13 +226,9 @@ def _get_attachments(
         if payload is None:
             continue
 
-        filename = part.get_filename()
-        if filename:
-            filename = _decode_mime(filename)
-        elif content_id:
-            filename = content_id
-        else:
-            filename = "inline_image"
+        filename = attachment_filename(part)
+        if not filename:
+            filename = content_id or "inline_image"
 
         attachments.append((filename, content_type, content_id, payload))
 

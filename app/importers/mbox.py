@@ -8,6 +8,7 @@ from typing import Optional, Callable
 
 from app.models import Email, Attachment, Account
 from app.database import get_session
+from app.importers.eml import attachment_filename
 
 
 def import_mbox(
@@ -198,18 +199,18 @@ def _get_attachments(msg) -> list[tuple[str, str, str, bytes]]:
             if part.get_content_maintype() == "multipart":
                 continue
             ct = part.get_content_type()
-            disp = (part.get("Content-Disposition") or "").lower()
-            cid = (part.get("Content-ID") or "").strip("<>").strip()
-            is_inline_image = ct.startswith("image/") and (cid or "inline" in disp)
-            is_attachment = "attachment" in disp
+            # Same trap as in eml.py: a non-ASCII header value arrives as an
+            # email.header.Header object, which has no .lower().
+            disp = part.get_content_disposition() or ""
+            cid = str(part.get("Content-ID") or "").strip("<>").strip()
+            is_inline_image = ct.startswith("image/") and (cid or disp == "inline")
+            is_attachment = disp == "attachment"
             if not is_inline_image and not is_attachment:
                 continue
-            filename = part.get_filename()
-            if filename:
-                filename = _decode_mime(filename)
-            elif cid:
+            filename = attachment_filename(part)
+            if not filename and cid:
                 filename = cid
-            else:
+            elif not filename:
                 filename = "inline_image"
             payload = part.get_payload(decode=True)
             if payload:
