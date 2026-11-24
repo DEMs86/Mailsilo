@@ -476,12 +476,12 @@ function showDetailEmpty() {
 }
 
 function setSplitView(enabled) {
+  // Разделитель списка и панели просмотра должен работать на каждой странице,
+  // поэтому режим «на всю ширину» (он же скрывает и ручку) больше не включаем.
   const sv = $("#splitView");
-  if (enabled) {
-    sv.classList.remove("full-width");
-  } else {
-    sv.classList.add("full-width");
-  }
+  if (!sv) return;
+  if (enabled === false) return;
+  sv.classList.remove("full-width");
 }
 
 function setListTitle(title, subtitle) {
@@ -578,7 +578,7 @@ function hasAnySearchCriteria(query, filters) {
 }
 
 async function renderSearch() {
-  setSplitView(false);
+  setSplitView(true);
   setListTitle("Search", "");
   showDetailEmpty();
 

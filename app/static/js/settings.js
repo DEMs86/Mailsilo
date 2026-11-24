@@ -1,5 +1,5 @@
 async function renderSettings() {
-  setSplitView(false);
+  setSplitView(true);
   setListTitle("Settings", "");
   showDetailEmpty();
 
