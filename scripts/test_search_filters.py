@@ -147,6 +147,17 @@ def main() -> int:
     check("страницы не пересекаются",
           not ({i["id"] for i in page1["items"]} & {i["id"] for i in page2["items"]}))
 
+    print("8. Экспорт MBOX подчиняется тем же фильтрам")
+    from app.services.email_service import EmailService
+    with database._SessionLocal() as db:
+        total_sender = EmailService.get_export_query(None, None, None, db, sender="ivan@rosatom").count()
+        total_both = EmailService.get_export_query(None, None, None, db, sender="ivan@rosatom",
+                                                   subject="Пакш").count()
+        total_archives = EmailService.get_export_query(None, None, None, db, account_ids=[1, 2]).count()
+    check("экспорт по отправителю", total_sender == 2, str(total_sender))
+    check("экспорт с двумя фильтрами", total_both == 1, str(total_both))
+    check("экспорт по списку архивов", total_archives == 5, str(total_archives))
+
     print()
     if failures:
         print(f"ПРОВАЛЕНО: {failures}")

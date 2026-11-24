@@ -203,7 +203,7 @@ document.addEventListener("click", (e) => {
     case "delete-email": deleteEmail(parseInt(el.dataset.emailId)); break;
     case "export-eml": downloadBlob(`/api/emails/${el.dataset.emailId}/export`, `email-${el.dataset.emailId}.eml`); break;
     case "export-mbox": exportMbox("/api/emails/export-mbox", "mailsilo-export.mbox"); break;
-    case "export-mbox-search": exportMbox(`/api/emails/export-mbox?q=${encodeURIComponent(state.query)}`, "mailsilo-search-export.mbox"); break;
+    case "export-mbox-search": exportMbox(searchExportUrl(), "mailsilo-search-export.mbox"); break;
     case "show-folder":
       state.selectedEmailId = null;
       showFolder(el.dataset.accountEmail, el.dataset.folderName, parseInt(el.dataset.accountId));

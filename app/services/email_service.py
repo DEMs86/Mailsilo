@@ -72,7 +72,14 @@ class EmailService:
         return bytes(msg)
 
     @staticmethod
-    def get_export_query(q: Optional[str], folder: Optional[str], account_id: Optional[int], session: Session):
+    def get_export_query(q: Optional[str], folder: Optional[str], account_id: Optional[int], session: Session,
+                         sender: Optional[str] = None, recipient: Optional[str] = None,
+                         subject: Optional[str] = None, account_ids: Optional[list[int]] = None):
+        """Same filters as /api/emails, so "export" always matches "search"."""
+        def pattern(value: str) -> str:
+            value = value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            return f"%{value}%"
+
         query = session.query(Email)
         if q:
             like = f"%{q}%"
@@ -88,6 +95,23 @@ class EmailService:
             query = query.filter(Email.folder == folder)
         if account_id:
             query = query.filter(Email.account_id == account_id)
+        if account_ids:
+            query = query.filter(Email.account_id.in_(account_ids))
+        if sender and sender.strip():
+            like = pattern(sender.strip())
+            query = query.filter(or_(
+                Email.sender_email.ilike(like, escape="\\"),
+                Email.sender_name.ilike(like, escape="\\"),
+            ))
+        if recipient and recipient.strip():
+            like = pattern(recipient.strip())
+            query = query.filter(or_(
+                Email.recipients_to.ilike(like, escape="\\"),
+                Email.recipients_cc.ilike(like, escape="\\"),
+                Email.recipients_bcc.ilike(like, escape="\\"),
+            ))
+        if subject and subject.strip():
+            query = query.filter(Email.subject.ilike(pattern(subject.strip()), escape="\\"))
         query = query.order_by(Email.date.asc().nullslast())
         return query
 
@@ -109,8 +133,12 @@ class EmailService:
             yield b"\n"
 
     @staticmethod
-    def generate_mbox_export(q: Optional[str], folder: Optional[str], account_id: Optional[int], session: Session):
-        query = EmailService.get_export_query(q, folder, account_id, session)
+    def generate_mbox_export(q: Optional[str], folder: Optional[str], account_id: Optional[int], session: Session,
+                             sender: Optional[str] = None, recipient: Optional[str] = None,
+                             subject: Optional[str] = None, account_ids: Optional[list[int]] = None):
+        query = EmailService.get_export_query(q, folder, account_id, session,
+                                              sender=sender, recipient=recipient,
+                                              subject=subject, account_ids=account_ids)
         yield from EmailService.generate_mbox_from_emails(query.yield_per(200))
 
     @staticmethod

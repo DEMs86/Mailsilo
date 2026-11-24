@@ -186,15 +186,24 @@ def export_mbox(
     q: Optional[str] = Query(None),
     folder: Optional[str] = Query(None),
     account_id: Optional[int] = Query(None),
+    account_ids: Optional[str] = Query(None),
+    sender: Optional[str] = Query(None),
+    recipient: Optional[str] = Query(None),
+    subject: Optional[str] = Query(None),
     session: Session = Depends(get_session),
 ):
     from fastapi.responses import StreamingResponse
 
-    query = email_service.get_export_query(q, folder, account_id, session)
+    chosen = _parse_ids(account_ids)
+    query = email_service.get_export_query(q, folder, account_id, session,
+                                           sender=sender, recipient=recipient,
+                                           subject=subject, account_ids=chosen)
     total = query.count()
 
     return StreamingResponse(
-        email_service.generate_mbox_export(q, folder, account_id, session),
+        email_service.generate_mbox_export(q, folder, account_id, session,
+                                           sender=sender, recipient=recipient,
+                                           subject=subject, account_ids=chosen),
         media_type="application/octet-stream",
         headers={
             "Content-Disposition": f'attachment; filename="mailsilo-export-{total}emails.mbox"'

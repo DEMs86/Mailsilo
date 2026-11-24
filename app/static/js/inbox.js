@@ -439,6 +439,17 @@ function renderSidebarAccounts(tree) {
   container.innerHTML = html;
 }
 
+function searchExportUrl() {
+  const params = new URLSearchParams();
+  if (state.query) params.set("q", state.query);
+  const f = state.filters || {};
+  if (f.sender) params.set("sender", f.sender);
+  if (f.recipient) params.set("recipient", f.recipient);
+  if (f.subject) params.set("subject", f.subject);
+  if (f.accountIds) params.set("account_ids", f.accountIds);
+  return `/api/emails/export-mbox?${params.toString()}`;
+}
+
 function sortOptionsHtml() {
   const opts = [["date", "Дата"], ["subject", "Тема"], ["sender", "Отправитель"], ["recipient", "Получатель"]];
   return opts.map(([value, label]) =>
