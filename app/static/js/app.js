@@ -1,4 +1,58 @@
-let state = { view: "inbox", page: 1, query: "", folder: null, selectedEmailId: null, sortBy: "date", sortOrder: "desc" };
+let state = {
+  view: "inbox", page: 1, query: "", folder: null, selectedEmailId: null,
+  sortBy: "date", sortOrder: "desc",
+  filters: { sender: "", recipient: "", subject: "", accountIds: "" },
+};
+
+/* ---------- Сохранение настроек интерфейса ---------- */
+const SORT_KEY = "mailsilo_sort";
+const SEARCH_KEY = "mailsilo_search_filters";
+const SIDEBAR_KEY = "mailsilo_sidebar_collapsed";
+
+function loadUiPrefs() {
+  try {
+    const sort = JSON.parse(localStorage.getItem(SORT_KEY) || "null");
+    if (sort && typeof sort.sortBy === "string") {
+      state.sortBy = sort.sortBy;
+      state.sortOrder = sort.sortOrder === "asc" ? "asc" : "desc";
+    }
+    const filters = JSON.parse(localStorage.getItem(SEARCH_KEY) || "null");
+    if (filters && typeof filters === "object") {
+      state.filters = { sender: "", recipient: "", subject: "", accountIds: "", ...filters };
+    }
+  } catch (e) {}
+}
+
+function saveSortPrefs() {
+  try { localStorage.setItem(SORT_KEY, JSON.stringify({ sortBy: state.sortBy, sortOrder: state.sortOrder })); } catch (e) {}
+}
+
+function saveSearchPrefs() {
+  try { localStorage.setItem(SEARCH_KEY, JSON.stringify(state.filters || {})); } catch (e) {}
+}
+
+/* ---------- Сворачиваемое боковое меню ---------- */
+function applySidebarCollapsed(collapsed) {
+  document.body.classList.toggle("sidebar-collapsed", collapsed);
+  const btn = $("#sidebarToggle");
+  if (btn) {
+    btn.textContent = collapsed ? "»" : "«";
+    btn.title = collapsed ? "Развернуть меню" : "Свернуть меню";
+    btn.setAttribute("aria-label", btn.title);
+  }
+}
+
+function toggleSidebar() {
+  const collapsed = !document.body.classList.contains("sidebar-collapsed");
+  applySidebarCollapsed(collapsed);
+  try { localStorage.setItem(SIDEBAR_KEY, collapsed ? "1" : "0"); } catch (e) {}
+}
+
+function initSidebarCollapsed() {
+  let collapsed = false;
+  try { collapsed = localStorage.getItem(SIDEBAR_KEY) === "1"; } catch (e) {}
+  applySidebarCollapsed(collapsed);
+}
 
 function navigate(view, page = 1) {
   state.view = view;
@@ -30,6 +84,8 @@ async function renderView() {
 
 async function initApp() {
   initTheme();
+  loadUiPrefs();
+  initSidebarCollapsed();
   initSplitResizer();
   loadStats();
   loadSidebarAccounts();
@@ -139,6 +195,8 @@ document.addEventListener("click", (e) => {
     case "backup-codes-done": location.reload(); break;
     case "back-to-login": renderLoginForm(); break;
     case "nav": navigate(el.dataset.view); break;
+    case "toggle-sidebar": toggleSidebar(); break;
+    case "toggle-sort-order": toggleSortOrder(); break;
 
     // Inbox
     case "show-email": showEmail(parseInt(el.dataset.emailId)); break;

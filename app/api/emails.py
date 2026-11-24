@@ -55,54 +55,93 @@ def _content_disposition(filename: str, default: str = "attachment") -> str:
     )
 
 
+def _like_pattern(value: str) -> str:
+    """Substring pattern with LIKE wildcards escaped."""
+    value = value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{value}%"
+
+
+def _parse_ids(raw: str | None) -> list[int]:
+    ids = []
+    for chunk in (raw or "").split(","):
+        chunk = chunk.strip()
+        if chunk.isdigit():
+            ids.append(int(chunk))
+    return ids
+
+
 @router.get("")
 def list_emails(
     q: Optional[str] = Query(None),
     folder: Optional[str] = Query(None),
     account_id: Optional[int] = Query(None),
+    account_ids: Optional[str] = Query(None, description="Comma-separated account ids"),
+    sender: Optional[str] = Query(None, description="Substring of sender name or address"),
+    recipient: Optional[str] = Query(None, description="Substring of To/Cc/Bcc"),
+    subject: Optional[str] = Query(None, description="Substring of the subject"),
     page: int = Query(1, ge=1),
     per_page: int = Query(50, ge=1, le=200),
     sort_by: str = Query("date"),
     sort_order: str = Query("desc"),
     session: Session = Depends(get_session),
 ):
-    query = session.query(Email)
-
-    if q:
-        tsquery = func.plainto_tsquery("spanish", q)
-        query = query.filter(Email.search_vector.op("@@")(tsquery))
-
+    # Every filter is collected once and applied to the same base query, so the
+    # full-text path and the ILIKE fallback can never disagree about them.
+    filters = []
     if folder:
-        query = query.filter(Email.folder == folder)
+        filters.append(Email.folder == folder)
     if account_id:
-        query = query.filter(Email.account_id == account_id)
+        filters.append(Email.account_id == account_id)
+    chosen_accounts = _parse_ids(account_ids)
+    if chosen_accounts:
+        filters.append(Email.account_id.in_(chosen_accounts))
+    if sender and sender.strip():
+        pattern = _like_pattern(sender.strip())
+        filters.append(or_(
+            Email.sender_email.ilike(pattern, escape="\\"),
+            Email.sender_name.ilike(pattern, escape="\\"),
+        ))
+    if recipient and recipient.strip():
+        pattern = _like_pattern(recipient.strip())
+        filters.append(or_(
+            Email.recipients_to.ilike(pattern, escape="\\"),
+            Email.recipients_cc.ilike(pattern, escape="\\"),
+            Email.recipients_bcc.ilike(pattern, escape="\\"),
+        ))
+    if subject and subject.strip():
+        filters.append(Email.subject.ilike(_like_pattern(subject.strip()), escape="\\"))
+
+    base = session.query(Email)
+    for condition in filters:
+        base = base.filter(condition)
 
     sort_col = {
         "date": Email.date,
         "subject": Email.subject,
         "sender": Email.sender_name,
+        "sender_email": Email.sender_email,
+        "recipient": Email.recipients_to,
         "created_at": Email.created_at,
     }.get(sort_by, Email.date)
 
-    use_fts = bool(q)
+    query = base
+    use_fts = False
+    if q and q.strip():
+        tsquery = func.plainto_tsquery("spanish", q)
+        fts_query = base.filter(Email.search_vector.op("@@")(tsquery))
+        if fts_query.count() > 0:
+            query = fts_query
+            use_fts = True
+        else:
+            pattern = _like_pattern(q)
+            query = base.filter(or_(
+                Email.subject.ilike(pattern, escape="\\"),
+                Email.sender_name.ilike(pattern, escape="\\"),
+                Email.sender_email.ilike(pattern, escape="\\"),
+                Email.body_text.ilike(pattern, escape="\\"),
+            ))
 
     total = query.count()
-    if q and total == 0:
-        use_fts = False
-        like = f"%{q}%"
-        query = session.query(Email).filter(
-            or_(
-                Email.subject.ilike(like),
-                Email.sender_name.ilike(like),
-                Email.sender_email.ilike(like),
-                Email.body_text.ilike(like),
-            )
-        )
-        if folder:
-            query = query.filter(Email.folder == folder)
-        if account_id:
-            query = query.filter(Email.account_id == account_id)
-        total = query.count()
 
     if use_fts and sort_by == "date" and sort_order == "desc":
         tsquery = func.plainto_tsquery("spanish", q)

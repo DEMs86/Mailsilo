@@ -102,6 +102,7 @@ function sortByColumn(col) {
     state.sortBy = col;
     state.sortOrder = col === "date" ? "desc" : "asc";
   }
+  if (typeof saveSortPrefs === "function") saveSortPrefs();
   if (state.view === "search") {
     doSearch(1);
     return;
@@ -132,6 +133,7 @@ async function renderFolder() {
     <button class="btn-sm danger" data-action="delete-selected">🗑 Delete selected</button>
     <button class="btn-sm" data-action="export-selected">📦 Export selected</button>
   </div>`;
+  html += sortBarHtml();
   html += listColumnsHtml();
   for (const e of data.items) {
     html += renderEmailListItem(e);
@@ -437,35 +439,147 @@ function renderSidebarAccounts(tree) {
   container.innerHTML = html;
 }
 
+function sortOptionsHtml() {
+  const opts = [["date", "Дата"], ["subject", "Тема"], ["sender", "Отправитель"], ["recipient", "Получатель"]];
+  return opts.map(([value, label]) =>
+    `<option value="${value}" ${state.sortBy === value ? "selected" : ""}>${label}</option>`).join("");
+}
+
+function sortBarHtml() {
+  const dir = state.sortOrder === "asc" ? "▲" : "▼";
+  const hint = state.sortOrder === "asc" ? "по возрастанию" : "по убыванию";
+  return `<div class="sort-bar">
+    <span class="sort-label">Сортировка</span>
+    <select id="sortBySelect" onchange="changeSortBy(this.value)">${sortOptionsHtml()}</select>
+    <button type="button" class="btn-small" data-action="toggle-sort-order" title="По возрастанию / убыванию">${dir}</button>
+    <span class="sort-hint">${hint}</span>
+  </div>`;
+}
+
+function changeSortBy(col) {
+  if (!col || state.sortBy === col) return;
+  state.sortBy = col;
+  state.sortOrder = col === "date" ? "desc" : "asc";
+  if (typeof saveSortPrefs === "function") saveSortPrefs();
+  rerenderList();
+}
+
+function toggleSortOrder() {
+  state.sortOrder = state.sortOrder === "asc" ? "desc" : "asc";
+  if (typeof saveSortPrefs === "function") saveSortPrefs();
+  rerenderList();
+}
+
+function rerenderList() {
+  if (state.view === "search") { doSearch(1); return; }
+  if (state.view === "folder" && state.folder) { state.folder.page = 1; renderFolder(); return; }
+  renderView();
+}
+
+function currentSearchFilters() {
+  const read = (id) => ($(id) ? $(id).value.trim() : "");
+  return {
+    sender: read("#filterSender"),
+    recipient: read("#filterRecipient"),
+    subject: read("#filterSubject"),
+    accountIds: ($("#filterAccount") ? $("#filterAccount").value : ""),
+  };
+}
+
+function hasAnySearchCriteria(query, filters) {
+  return Boolean((query || "").trim() || filters.sender || filters.recipient || filters.subject);
+}
+
 async function renderSearch() {
   setSplitView(false);
   setListTitle("Search", "");
   showDetailEmpty();
-  let html = `<div class="page-header-body"><h2>🔍 Search emails</h2></div>
-  <div class="search-bar">
-    <svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
-    <input type="text" id="searchInput" placeholder="Search by subject, from or content..." value="${esc(state.query)}" autofocus>
-    <button class="btn-small primary" data-action="search">Search</button>
+
+  let accounts = [];
+  try { accounts = await api("/api/accounts"); } catch (e) { accounts = []; }
+  const filters = state.filters || { sender: "", recipient: "", subject: "", accountIds: "" };
+  const accountOptions = [`<option value="">Все архивы</option>`]
+    .concat(accounts.map((a) => {
+      const label = a.name && a.name !== a.email ? `${a.name} — ${a.email}` : a.email;
+      const selected = String(a.id) === String(filters.accountIds) ? "selected" : "";
+      return `<option value="${a.id}" ${selected}>${esc(label)}</option>`;
+    })).join("");
+
+  const html = `<div class="page-header-body"><h2>🔍 Поиск писем</h2></div>
+  <div class="search-panel">
+    <div class="search-bar">
+      <svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+      <input type="text" id="searchInput" placeholder="Любой текст: тема, отправитель, содержимое…" value="${esc(state.query)}" autofocus>
+      <button class="btn-small primary" data-action="search">Искать</button>
+    </div>
+    <div class="search-fields">
+      <label class="sf-field"><span>От</span>
+        <input type="text" id="filterSender" placeholder="имя или адрес" value="${esc(filters.sender || "")}"></label>
+      <label class="sf-field"><span>Кому</span>
+        <input type="text" id="filterRecipient" placeholder="To / Cc / Bcc" value="${esc(filters.recipient || "")}"></label>
+      <label class="sf-field"><span>Тема</span>
+        <input type="text" id="filterSubject" placeholder="часть темы" value="${esc(filters.subject || "")}"></label>
+      <label class="sf-field"><span>Архив</span>
+        <select id="filterAccount">${accountOptions}</select></label>
+      <label class="sf-field"><span>Сортировка</span>
+        <span class="sf-sort">
+          <select id="filterSort" onchange="changeSortBy(this.value)">${sortOptionsHtml()}</select>
+          <button type="button" class="btn-small" data-action="toggle-sort-order" title="По возрастанию / убыванию">${state.sortOrder === "asc" ? "▲" : "▼"}</button>
+        </span></label>
+    </div>
   </div>
   <div id="searchResults"></div>`;
   $("#listPanelBody").innerHTML = html;
-  if (state.query) doSearch();
+  if (hasAnySearchCriteria(state.query, filters)) doSearch();
 }
 
 async function doSearch(page = 1) {
-  state.query = ($("#searchInput") || $("#searchInputTop")).value.trim();
+  const input = $("#searchInput") || $("#searchInputTop");
+  if (input) state.query = input.value.trim();
+  const filters = currentSearchFilters();
+  state.filters = filters;
+  if (typeof saveSearchPrefs === "function") saveSearchPrefs();
   state.page = page;
-  if (!state.query) return;
-  const data = await api(`/api/emails?q=${encodeURIComponent(state.query)}&page=${page}&per_page=50&sort_by=${state.sortBy}&sort_order=${state.sortOrder}`);
+
   const container = $("#searchResults");
-  if (data.items.length === 0) {
-    container.innerHTML = `<div class="empty-state">No results for "${esc(state.query)}"</div>`;
+  if (!hasAnySearchCriteria(state.query, filters)) {
+    if (container) container.innerHTML = `<div class="empty-state">Укажите текст, отправителя, получателя или тему</div>`;
     return;
   }
-  let html = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;padding:0 .5rem">
-    <span style="color:var(--text-secondary);font-size:.82rem">${data.total} result(s)</span>
+
+  const params = new URLSearchParams({
+    page: String(page),
+    per_page: "50",
+    sort_by: state.sortBy,
+    sort_order: state.sortOrder,
+  });
+  if (state.query) params.set("q", state.query);
+  if (filters.sender) params.set("sender", filters.sender);
+  if (filters.recipient) params.set("recipient", filters.recipient);
+  if (filters.subject) params.set("subject", filters.subject);
+  if (filters.accountIds) params.set("account_ids", filters.accountIds);
+
+  const data = await api(`/api/emails?${params.toString()}`);
+  if (!container) return;
+  if (data.items.length === 0) {
+    container.innerHTML = `<div class="empty-state">Ничего не найдено</div>`;
+    return;
+  }
+  const summary = [];
+  if (state.query) summary.push(`текст «${esc(state.query)}»`);
+  if (filters.sender) summary.push(`от «${esc(filters.sender)}»`);
+  if (filters.recipient) summary.push(`кому «${esc(filters.recipient)}»`);
+  if (filters.subject) summary.push(`тема «${esc(filters.subject)}»`);
+  if (filters.accountIds) {
+    const acct = ($("#filterAccount") || {}).selectedOptions?.[0];
+    if (acct) summary.push(`архив «${esc(acct.textContent.trim())}»`);
+  }
+
+  let html = `<div class="search-summary">
+    <span>${data.total} результат(ов)${summary.length ? " · " + summary.join(", ") : ""}</span>
     <button class="btn-small" data-action="export-mbox-search">📦 Export MBOX</button>
   </div>`;
+  html += sortBarHtml();
   html += listColumnsHtml();
   for (const e of data.items) {
     html += renderEmailListItem(e);

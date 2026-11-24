@@ -9,6 +9,15 @@
 </head>
 <body>
 
+<script>
+  // Применяем сохранённое состояние меню до первой отрисовки, чтобы не было прыжка.
+  try {
+    if (localStorage.getItem("mailsilo_sidebar_collapsed") === "1") {
+      document.body.classList.add("sidebar-collapsed");
+    }
+  } catch (e) {}
+</script>
+
 <div id="authContainer"></div>
 
 <div id="app">
@@ -19,6 +28,9 @@
       <div class="logo">
         <img src="/static/logo-dark.png" alt="MailSilo">
         <span>MailSilo</span>
+        <button id="sidebarToggle" class="sidebar-toggle" type="button"
+                data-action="toggle-sidebar" title="Свернуть меню"
+                aria-label="Свернуть меню">«</button>
       </div>
 
       <div class="nav-section-label">Navigation</div>
