@@ -1808,3 +1808,29 @@ body.sidebar-collapsed .sidebar-footer { padding: .5rem 0; }
   color: var(--text-secondary);
   font-size: .8rem;
 }
+
+/* ============ Бесконечная лента писем ============ */
+.feed-sentinel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: .5rem;
+  padding: .9rem 0 1.5rem;
+  color: var(--text-tertiary);
+  font-size: .78rem;
+}
+.feed-sentinel::before {
+  content: "";
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  animation: feed-spin .8s linear infinite;
+}
+.feed-sentinel.feed-end { opacity: .65; }
+.feed-sentinel.feed-end::before { display: none; }
+
+@keyframes feed-spin {
+  to { transform: rotate(360deg); }
+}

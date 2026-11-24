@@ -64,6 +64,7 @@ function navigate(view, page = 1) {
 }
 
 async function renderView() {
+  if (typeof stopFeed === "function") stopFeed();
   showLoading(true);
   showDetailEmpty();
   try {

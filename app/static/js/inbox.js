@@ -113,9 +113,84 @@ function sortByColumn(col) {
   }
 }
 
+const FEED_PAGE_SIZE = 50;
+
+const feed = {
+  mode: null, params: null, page: 0, total: 0,
+  loading: false, observer: null, sentinel: null,
+};
+
+function feedFooterHtml() {
+  return `<div id="feedSentinel" class="feed-sentinel"><span>Загрузка…</span></div>`;
+}
+
+function stopFeed() {
+  if (feed.observer) { feed.observer.disconnect(); feed.observer = null; }
+  feed.mode = null; feed.params = null; feed.page = 0; feed.total = 0;
+  feed.loading = false; feed.sentinel = null;
+}
+
+function feedMarkEnd() {
+  if (feed.observer) { feed.observer.disconnect(); feed.observer = null; }
+  const el = $("#feedSentinel");
+  if (el) { el.classList.add("feed-end"); el.textContent = "Это все письма"; }
+}
+
+function initFeed(mode, params, total, page) {
+  stopFeed();
+  feed.mode = mode;
+  feed.params = params;
+  feed.total = total;
+  feed.page = page;
+  feed.sentinel = $("#feedSentinel");
+  if (!feed.sentinel) return;
+  if (feed.total <= feed.page * FEED_PAGE_SIZE) { feedMarkEnd(); return; }
+  if (typeof IntersectionObserver !== "function") return;
+  feed.observer = new IntersectionObserver((entries) => {
+    if (entries.some((entry) => entry.isIntersecting)) feedLoadMore();
+  }, { root: $("#listPanelBody"), rootMargin: "300px 0px" });
+  feed.observer.observe(feed.sentinel);
+}
+
+function appendFeedItems(items) {
+  const container = $("#feedItems");
+  if (!container) return;
+  let html = "";
+  for (const e of items) html += renderEmailListItem(e);
+  container.insertAdjacentHTML("beforeend", html);
+}
+
+async function feedLoadMore() {
+  if (feed.loading || !feed.params) return;
+  if (feed.page * FEED_PAGE_SIZE >= feed.total) { feedMarkEnd(); return; }
+  feed.loading = true;
+  const next = feed.page + 1;
+  const params = new URLSearchParams(feed.params);
+  params.set("page", String(next));
+  params.set("per_page", String(FEED_PAGE_SIZE));
+  try {
+    const data = await api(`/api/emails?${params.toString()}`);
+    feed.page = next;
+    feed.total = data.total;
+    appendFeedItems(data.items);
+    if (feed.page * FEED_PAGE_SIZE >= feed.total) feedMarkEnd();
+  } catch (e) {
+    toast("Не удалось загрузить следующую страницу: " + esc(e.message));
+  } finally {
+    feed.loading = false;
+  }
+}
+
 async function renderFolder() {
   const f = state.folder;
-  const data = await api(`/api/emails?folder=${encodeURIComponent(f.folderName)}&account_id=${f.accountId}&page=${f.page}&per_page=50&sort_by=${state.sortBy}&sort_order=${state.sortOrder}`);
+  const params = new URLSearchParams({
+    folder: f.folderName,
+    account_id: String(f.accountId),
+    per_page: String(FEED_PAGE_SIZE),
+    sort_by: state.sortBy,
+    sort_order: state.sortOrder,
+  });
+  const data = await api(`/api/emails?${params.toString()}`);
 
   setSplitView(true);
   setListTitle(`${esc(f.folderName)}`, `${data.total} emails · ${esc(f.accountEmail)}`);
@@ -135,11 +210,12 @@ async function renderFolder() {
   </div>`;
   html += sortBarHtml();
   html += listColumnsHtml();
-  for (const e of data.items) {
-    html += renderEmailListItem(e);
-  }
-  html += pagination(data.total, data.page, data.per_page, "change-folder-page");
+  html += `<div id="feedItems">`;
+  for (const e of data.items) html += renderEmailListItem(e);
+  html += `</div>` + feedFooterHtml();
   $("#listPanelBody").innerHTML = html;
+
+  initFeed("folder", params, data.total, 1);
 }
 
 async function showThread(emailId) {
@@ -550,7 +626,7 @@ async function doSearch(page = 1) {
   const filters = currentSearchFilters();
   state.filters = filters;
   if (typeof saveSearchPrefs === "function") saveSearchPrefs();
-  state.page = page;
+  state.page = 1;
 
   const container = $("#searchResults");
   if (!hasAnySearchCriteria(state.query, filters)) {
@@ -559,8 +635,7 @@ async function doSearch(page = 1) {
   }
 
   const params = new URLSearchParams({
-    page: String(page),
-    per_page: "50",
+    per_page: String(FEED_PAGE_SIZE),
     sort_by: state.sortBy,
     sort_order: state.sortOrder,
   });
@@ -590,13 +665,13 @@ async function doSearch(page = 1) {
     <span>${data.total} результат(ов)${summary.length ? " · " + summary.join(", ") : ""}</span>
     <button class="btn-small" data-action="export-mbox-search">📦 Export MBOX</button>
   </div>`;
-  html += sortBarHtml();
   html += listColumnsHtml();
-  for (const e of data.items) {
-    html += renderEmailListItem(e);
-  }
-  html += pagination(data.total, data.page, data.per_page, "do-search");
+  html += `<div id="feedItems">`;
+  for (const e of data.items) html += renderEmailListItem(e);
+  html += `</div>` + feedFooterHtml();
   container.innerHTML = html;
+
+  initFeed("search", params, data.total, 1);
 }
 
 function toggleSelectEmail(id, checked) {
